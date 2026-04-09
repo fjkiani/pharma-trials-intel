@@ -1,0 +1,55 @@
+The 5 Landmines
+1. Calendar event lookup is unresolved — and fragile if left to the agent
+The spec says "find the next recurring sponsor-call calendar event." The Calendar API has no semantic search — you either know the event ID or you list events and match by title string. The agent will pick a strategy on its own. If it guesses title-match and the event is named "Monthly Sponsor Call - Hartwell Study v2" instead of "Monthly Sponsor Call," it silently fails.
+
+Fix: Add one line to settings: Sponsor call calendar event ID (user pastes from Google Calendar). That makes the lookup deterministic.
+
+2. Google Docs template placeholder format is undefined
+The spec says "replace all placeholder strings with current values." The Google Docs API replaceAllText call needs exact literal strings to find. The agent will invent a format — probably {{enrolled_count}} or [ENROLLED]. If Susan's actual template uses <<Enrolled>> or [INSERT_ENROLLED_HERE], every replacement silently produces nothing and the doc looks empty.
+
+Fix: Define a canonical placeholder table in the spec:
+
+Field	Placeholder
+Enrolled count	{{enrolled}}
+Screened count	{{screened}}
+Screen failures	{{screen_failures}}
+AE count	{{ae_count}}
+Next milestone	{{next_milestone}}
+Tell users: "Your template must use these exact strings."
+
+3. Google Sheets column mapping is unspecified
+The spec says "reads current enrollment figures (enrolled, screened, screen failures, withdrawals) from the configured sheet and tab." But it doesn't say which row or column those numbers live in. Is enrolled in B2? Is there a header row? The agent will guess a layout (probably a naive A1:B5 range), and it will almost certainly not match Susan's actual sheet.
+
+Fix: Either specify a canonical sheet layout ("Row 1 is headers: Metric | Value, Column A is the metric name, Column B is the number") or add a column-mapping settings screen (Enrolled = B2, Screened = B3, etc.).
+
+4. All three Notion databases are schema-less
+The spec references three Notion databases — AE log, deviation log, regulatory milestones — and says the agent should return "structured summaries (counts, severity, recent entries, upcoming milestones)." But it specifies zero Notion property names.
+
+Notion databases have arbitrary property names. The agent will invent property names like "Severity", "Date", "Status" — and Susan's actual database has "AE Grade", "Reported On", "Resolution Status". Every query returns empty or errors.
+
+Fix: Add a schema block to the spec for each database:
+
+text
+AE Log DB:
+  - AE Description (title)
+  - Grade (select: Grade 1–5)
+  - Date Reported (date)
+  - Resolved (checkbox)
+
+Deviation Log DB:
+  - Deviation Type (title)
+  - Date (date)
+  - Severity (select: Minor/Major)
+
+Regulatory Milestones DB:
+  - Document Name (title)
+  - Expiration Date (date)
+  - Status (select: Current/Expiring Soon/Expired)
+  - File Link (url)
+5. Report history has no named persistence layer
+The spec says "A history list of past reports with their status, generation date, and doc link." There's no database mentioned anywhere in these two modules. The agent will either use in-memory state (lost on restart), SQLite (fine but not specified), or Replit Database (the right answer for a Replit POC).
+
+Fix: Add one line: "Report history is persisted in Replit Database (key-value store, JSON serialized)." Replit Database is a managed built-in — no setup, no secrets.
+
+What's Actually Solid
+The Connector integration claims are real and accurate — Google Workspace and Notion are both listed as first-party Connectors (sign in once, Agent writes the integration code automatically). The flow logic (Generate → Draft → PI Review → Final → Calendar update), the Gmail-only scope, the out-of-scope list, and the "link not attachment" decision are all correct calls. The spec is not drifting — it's just missing these five data contracts that will determine whether the agent builds the right thing or a plausible-looking wrong thing.

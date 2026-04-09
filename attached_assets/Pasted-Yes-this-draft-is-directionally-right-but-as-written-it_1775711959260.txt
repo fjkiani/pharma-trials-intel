@@ -1,0 +1,42 @@
+Yes — this draft is directionally right, but as written it still feels like a feature list, not a realistic POC. Replit’s docs do support Google Drive, Google Docs, Google Sheets, Google Calendar, Gmail, and Notion connectivity, so the integration backbone is plausible; the problem is that the current spec asks for too many workflow jumps, edge cases, and provider branches in one go.
+
+Realism audit
+The strongest part is #2 Sponsor Report Generation, because it maps to one user, one cadence, one output, and one obvious business win. Replit’s listed Google Workspace connectors and Notion integration make the core “read Sheet + read Notion + create Doc + send email + update Calendar” path realistic for a first demo.
+
+The weakest part is #1 Regulatory Doc Management as currently scoped, because it mixes timeline UI, version reconciliation, Google Calendar automation, submission packet prep, and multiple storage backends. Replit’s docs confirm Google Workspace support, but your draft adds Box and Dropbox alternatives plus file-version comparison logic without a narrow first-path definition, which makes the story feel platform-heavy instead of outcome-heavy.
+
+What to cut
+For the sponsor-report POC, cut Outlook support, cut “send finalized doc as attachment” in v1, and cut multi-provider branching. Replit’s docs explicitly list Gmail under Google Workspace connectors, but your draft doubles the surface area by supporting Gmail and Outlook at once, which is unnecessary for proving the workflow.
+
+Also simplify Google Docs generation to template placeholders only. Google Docs API template replacement is workable with placeholder text replacement, but styled replacements are not straightforward and usually need extra follow-up text-style updates, so fancy template behavior will create demo fragility fast.
+
+For regulatory, cut Box/Dropbox, cut version-mismatch intelligence, and cut packet bundling from the first demo. Keep it to “Notion as system of record, Drive link display, and Calendar reminder creation” if you need it at all.
+
+Better POC shape
+Make the POC story: “Susan should never build the monthly sponsor report manually again.” That means the flagship flow is one button, one draft document, one review handoff, one final send, and one calendar update.
+
+Use Regulatory as a supporting data service, not as a second flagship module. In practice, that means pulling “upcoming milestones” from the same regulatory source, but not trying to fully solve regulatory document operations in the same phase.
+
+Recommended v1 scope
+Here’s the more realistic build:
+
+Priority	Keep for v1	Why
+1	Google Sheets enrollment read	Clean quantitative input; low ambiguity. 
+2	Notion read for AE/deviation/milestones	Replit supports Notion connectivity; good for structured summaries. 
+3	Google Doc creation from template	Replit supports Google Docs; placeholder-based generation is viable. 
+4	Gmail “Send to PI”	Gmail is explicitly supported in Replit’s Google Workspace integrations. 
+5	Google Calendar event description update	Calendar read/write is supported in Replit integrations. 
+Later	Outlook support	Adds branching without improving the demo.
+Later	Finalized attachment export	More moving parts than value in v1.
+Later	Box/Dropbox/version mismatch engine	Good product direction, bad first demo scope.
+Rewritten concept
+POC name: Sponsor Report Co-Pilot
+
+User story: Susan clicks “Generate Monthly Sponsor Report,” and the app pulls current enrollment from Google Sheets plus AE, deviation, and milestone summaries from Notion, then creates a draft Google Doc from the sponsor’s template. Replit’s integrations documentation supports the needed Google Workspace services and Notion connectivity for this end-to-end draft flow.
+
+Review flow: Susan reviews the generated draft in-app, then clicks “Send to PI,” which sends a Gmail message with the live Google Doc link. Gmail and Google Docs are both listed in Replit’s Google Workspace integrations, making that review handoff a credible demo path.
+
+Completion flow: After PI edits and approves the doc, Susan clicks “Mark Final + Update Call,” which updates the next sponsor-call calendar event with the report link and changes the report status to Sent. Google Calendar read/write is supported in Replit’s integrations, so this final coordination step is realistic without overbuilding attachment workflows.
+
+Product framing
+Pitch this as a monthly coordination automation product, not a document generator. The real value is that Susan stops reconciling siloed systems and starts operating from one orchestrated workflow, while the PI and sponsor stay inside tools they already use.

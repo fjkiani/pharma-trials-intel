@@ -1,0 +1,80 @@
+This spec is tight. Here's my audit — what's strong, what's missing, and what needs fixing before this gets built.
+
+WHAT'S STRONG
+Data contracts are production-grade. The canonical Google Sheets layout with metric-name matching (not hardcoded cell refs), the explicit matchCase: true on placeholder substitution, the permissions fix after drive.files.copy() — these are the kinds of details that prevent the "it works in demo, breaks in production" problem. This reads like someone who's been burned before.
+
+The nag engine design is correct. Calling out that setInterval() dies on server restart/sleep and mandating a Scheduled Deployment + dedicated endpoint is the right architectural call for Replit. Most people build the naive version and wonder why their nags stop firing after 30 minutes.
+
+The staleness check using Drive API instead of Sheets API — this is a subtle gotcha that most developers would miss. The Sheets API spreadsheets.get does not return modifiedTime. Documenting this explicitly saves hours of debugging.
+
+Out-of-scope is well-defined. Single-study, Gmail-only, no PDF export, no AE data entry, user provides template — these constraints keep v1 shippable.
+
+WHAT NEEDS FIXING
+1. Missing Error States in User Stories
+The user stories cover the happy path but not failure modes:
+
+What happens if the Notion AE database is empty? Does the report generate with zeros, or block?
+
+What if the Google Docs template is missing a placeholder? replaceAllText silently succeeds on missing placeholders — the report would have raw {{enrolled}} strings. Add a post-generation validation step that checks the new doc for any remaining {{...}} patterns and warns Susan.
+
+What if Gmail send fails? The report status would be stuck in "Draft" with no feedback. Add a retry mechanism or at minimum surface the error.
+
+2. Calendar Event ID is Fragile
+Requiring Susan to paste a Google Calendar event ID is a UX problem. Event IDs are long base64 strings that users can't easily find. Two options:
+
+Better: Let Susan search by event title + date range and select from results
+
+Acceptable for v1: Add clear instructions in settings showing how to extract the event ID from the calendar URL (it's in the eid parameter)
+
+3. Report Status Lifecycle is Incomplete
+The spec says "Draft → PI Review → Sent" but the user stories describe a different flow:
+
+Generate → Draft
+
+Send to PI → PI Review
+
+PI approves → ??? (no approval mechanism defined)
+
+Mark Final → Finalized
+
+Update calendar → Sent
+
+There's no mechanism for the PI to signal "approved" back to the app. Options:
+
+Simple (v1): Susan manually clicks "Mark as Approved" after checking the doc
+
+Better (v2): PI clicks an approval link in the doc/email that hits an API endpoint
+
+The spec should explicitly state which approach v1 uses.
+
+4. Notion API Pagination
+If the AE log or deviation log has more than 100 entries (Notion API default page size), the counts will be wrong. The Notion read endpoints must implement has_more / start_cursor pagination. This isn't mentioned anywhere in the tasks.
+
+5. Template Reuse Risk
+drive.files.copy() creates a new doc each generation. If Susan generates 3 drafts in a month (mistakes, re-runs), she'll have orphaned docs. Add a "discard draft" action that deletes the Google Doc and removes the report record, or at minimum mark abandoned drafts visually in the history.
+
+6. Concurrent Report Guard
+Nothing prevents Susan from generating a new report while one is still in "PI Review." Should the app block this, warn, or allow multiple in-flight reports? For single-study v1, I'd recommend blocking with a message: "Report from [date] is still in PI Review — finalize or discard before generating a new one."
+
+WHAT'S MISSING FOR THE DEMO
+This spec is build-ready but demo-story incomplete. For the Replit Loom video, you need:
+
+Seed data script — Pre-populates the Google Sheet with realistic enrollment numbers, the Notion databases with 3-4 AEs (including one Grade 3), 2 deviations (one Major), and 3 regulatory milestones. Without this, the demo shows empty tables.
+
+Template Google Doc — The actual sponsor report template with the placeholders needs to exist. Create one that looks like a real sponsor report (header, trial name, reporting period, sections for enrollment, safety, regulatory, next steps).
+
+Demo flow script — The exact clicks for the Loom recording:
+
+Open settings → show all connected services
+
+Click Generate → staleness warning fires (seed data is 26 hours old) → acknowledge → report generates
+
+Click into the Google Doc → show populated fields
+
+Click "Send to PI" → show Gmail sent
+
+(Skip forward in time) Show nag email in inbox
+
+Click "Mark Final + Update Call" → show calendar event updated
+
+Show history view with past reports

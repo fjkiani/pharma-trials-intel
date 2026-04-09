@@ -1,0 +1,29 @@
+Solid — not drifting. The data contracts, placeholder table, Notion schemas, and persistence story are all correct and precise. Three real technical issues remain that will cause a demo failure or silent bug if not caught now.
+
+3 Technical Errors in the Current Spec
+1. Wrong API for staleness check — will throw a 404 or return no timestamp
+The spec says: "the app calls the Google Sheets API to retrieve the sheet's last-modified timestamp."
+
+The Google Sheets API (spreadsheets.get) does not return a modifiedTime field — it returns spreadsheet structure, not file metadata. The last-modified timestamp lives in the Google Drive API (drive.files.get with fields=modifiedTime). The agent will call the Sheets API, get no timestamp back, and either silently skip the staleness check or throw an error.
+
+Fix: Change task 1 to: "Call the Google Drive API (drive.files.get with fields=modifiedTime) using the Sheet's file ID to retrieve the last-modified timestamp for the staleness check."
+
+2. Copied Google Doc inherits private permissions — PI gets a 403
+The spec says: "Copy the sponsor's template doc (by template ID from settings)." drive.files.copy() copies the file but does not copy sharing permissions — the new doc is private to the service account. When Susan sends the PI the Google Doc link and the PI clicks it, they get "You need permission to access this file." The report is generated, the Gmail is sent, and the demo breaks at the most visible moment.
+
+Fix: After files.copy() returns the new doc ID, immediately call drive.permissions.create() to grant the PI's email role: writer (or role: commenter) before the doc URL is returned. Add one sentence to Task 3: "After copying the template, set sharing permissions on the new doc to grant the PI email address (from settings) writer access via the Drive permissions API before returning the doc URL."
+
+3. The nag engine has no specified runtime mechanism — agent will use setInterval and it will die on restart
+The spec defines the nag engine behavior perfectly (4h interval, stops on Final, configurable) but says "schedules a background polling check" without specifying how. An agent will default to setInterval() inside the Express/Node process. That timer dies silently on every Replit restart, sleep, or redeploy — and nag emails stop without any indication.
+
+Fix: Implement the nag engine as a Replit Scheduled Deployment — a separate lightweight endpoint (POST /internal/nag-check) that queries Replit Database for all reports in PI Review status, checks if it's been 4+ hours since the last nag, and sends emails. The scheduled deployment calls this endpoint every 4 hours. This is process-isolated and survives restarts.
+
+Add to task 4: "Implement the nag check as a dedicated API endpoint (POST /internal/nag-check) that scans Replit Database for PI Review reports and fires emails if the nag interval has elapsed. Configure a Replit Scheduled Deployment to call this endpoint every 4 hours — do not use in-process timers."
+
+2 Minor Gaps Worth One-Liners
+Calendar description overwrite risk — events.patch on the description field replaces the whole description. If the event already has notes in it, they get wiped. Add: "Append the report link to any existing calendar event description — do not overwrite."
+
+replaceAllText is case-sensitive by default — The matchCase field defaults to false, which means {{Enrolled}} and {{enrolled}} both match. This is fine behavior but confirm the template author knows casing doesn't matter — or set matchCase: true explicitly and document it.
+
+What's Tight
+The Replit Database schema, the canonical placeholder table, the Notion property names with exact select values, the settings screen field list, and the Calendar event-ID-from-settings decision are all correct and will produce deterministic agent behavior. This spec is one-liner fixes away from being agent-ready.
