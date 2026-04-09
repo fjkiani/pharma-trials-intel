@@ -450,13 +450,13 @@ router.post("/reports/:reportId/discard", async (req, res): Promise<void> => {
   const report = await getReport(reportId);
 
   if (!report) { res.status(404).json({ error: "Report not found" }); return; }
-  if (report.status !== "Draft" && report.status !== "Approved") {
-    res.status(409).json({ error: `Report is in ${report.status} status — only Draft or Approved reports can be discarded.` });
+  if (report.status !== "Draft" && report.status !== "Approved" && report.status !== "PI Review") {
+    res.status(409).json({ error: `Report is in ${report.status} status — only Draft, PI Review, or Approved reports can be discarded.` });
     return;
   }
 
   // Only delete the Google Doc for Draft reports.
-  // Approved reports were already shared with the PI — deleting the doc would break their access.
+  // PI Review and Approved reports were already shared with the PI — deleting the doc would break their access.
   if (report.status === "Draft") {
     try {
       const { deleteDoc } = await import("../lib/googleDocs.js");

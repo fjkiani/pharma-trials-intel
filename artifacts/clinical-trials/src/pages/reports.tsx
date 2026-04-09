@@ -202,53 +202,81 @@ function ReportCard({
               )}
 
               {report.status === "PI Review" && (
-                <Button
-                  size="sm"
-                  onClick={() => {
-                    markApproved.mutate(
-                      { reportId: report.id },
-                      {
-                        onSuccess: () => {
-                          toast({ title: "Report Approved", description: "Marked as approved by PI." });
-                          onRefresh();
+                <>
+                  <Button
+                    size="sm"
+                    onClick={() => {
+                      markApproved.mutate(
+                        { reportId: report.id },
+                        {
+                          onSuccess: () => {
+                            toast({ title: "Report Approved", description: "Marked as approved by PI." });
+                            onRefresh();
+                          },
+                          onError: (err: unknown) => {
+                            const msg = (err as { response?: { data?: { error?: string } } })?.response?.data?.error ?? "Unknown error";
+                            toast({ title: "Error", description: msg, variant: "destructive" });
+                          },
                         },
-                        onError: (err: unknown) => {
-                          const msg = (err as { response?: { data?: { error?: string } } })?.response?.data?.error ?? "Unknown error";
-                          toast({ title: "Error", description: msg, variant: "destructive" });
-                        },
-                      },
-                    );
-                  }}
-                  disabled={markApproved.isPending}
-                >
-                  <CheckCircle2 className="h-3.5 w-3.5 mr-1.5" />
-                  {markApproved.isPending ? "Approving..." : "Mark Approved"}
-                </Button>
+                      );
+                    }}
+                    disabled={markApproved.isPending}
+                  >
+                    <CheckCircle2 className="h-3.5 w-3.5 mr-1.5" />
+                    {markApproved.isPending ? "Approving..." : "Mark Approved"}
+                  </Button>
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    onClick={() => setConfirmDiscard(true)}
+                    className="text-destructive hover:text-destructive"
+                    disabled={discardReport.isPending}
+                  >
+                    <Trash2 className="h-3.5 w-3.5 mr-1.5" />
+                    Discard
+                  </Button>
+                </>
               )}
 
               {report.status === "Approved" && (
-                <Button
-                  size="sm"
-                  onClick={() => {
-                    markFinal.mutate(
-                      { reportId: report.id },
-                      {
-                        onSuccess: () => {
-                          toast({ title: "Report Finalized", description: "Report marked as sent to sponsor." });
-                          onRefresh();
+                <>
+                  <Button
+                    size="sm"
+                    onClick={() => {
+                      markFinal.mutate(
+                        { reportId: report.id },
+                        {
+                          onSuccess: (data: unknown) => {
+                            toast({ title: "Report Finalized", description: "Report marked as sent to sponsor." });
+                            const calWarn = (data as { calendarWarning?: string | null })?.calendarWarning;
+                            if (calWarn) {
+                              toast({ title: "Calendar Update Skipped", description: calWarn, variant: "default" });
+                            }
+                            onRefresh();
+                          },
+                          onError: (err: unknown) => {
+                            const msg = (err as { response?: { data?: { error?: string } } })?.response?.data?.error ?? "Unknown error";
+                            toast({ title: "Error", description: msg, variant: "destructive" });
+                          },
                         },
-                        onError: (err: unknown) => {
-                          const msg = (err as { response?: { data?: { error?: string } } })?.response?.data?.error ?? "Unknown error";
-                          toast({ title: "Error", description: msg, variant: "destructive" });
-                        },
-                      },
-                    );
-                  }}
-                  disabled={markFinal.isPending}
-                >
-                  <Flag className="h-3.5 w-3.5 mr-1.5" />
-                  {markFinal.isPending ? "Finalizing..." : "Mark Final"}
-                </Button>
+                      );
+                    }}
+                    disabled={markFinal.isPending}
+                  >
+                    <Flag className="h-3.5 w-3.5 mr-1.5" />
+                    {markFinal.isPending ? "Finalizing..." : "Mark Final"}
+                  </Button>
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    onClick={() => setConfirmDiscard(true)}
+                    className="text-destructive hover:text-destructive"
+                    disabled={discardReport.isPending}
+                  >
+                    <Trash2 className="h-3.5 w-3.5 mr-1.5" />
+                    Discard
+                  </Button>
+                </>
               )}
             </div>
           )}
@@ -260,7 +288,9 @@ function ReportCard({
           <AlertDialogHeader>
             <AlertDialogTitle>Discard this report?</AlertDialogTitle>
             <AlertDialogDescription>
-              The Google Doc will be permanently deleted from Drive. This cannot be undone.
+              {report.status === "Draft"
+                ? "The Google Doc will be permanently deleted from Drive. This cannot be undone."
+                : "This report will be marked as discarded. The Google Doc will not be deleted — the PI still has access to it."}
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
