@@ -1,0 +1,86 @@
+We spent hours doing what Susan would never do: manually finding Notion database IDs, decoding base64 calendar event IDs, figuring out which of two Notion integrations (cusor vs Replit) the app actually uses, sharing databases with the right one, pasting 32-character hex strings into a settings form. We're engineers and we struggled. A clinical research coordinator would never get past step one.
+
+The connection problem IS the product. Not the report generation — that's downstream plumbing. The hard problem in enterprise is getting 10 different SaaS tools to talk to each other with the right permissions, the right schemas, and the right tokens, governed and auditable.
+
+The Pivot: Connection Orchestrator
+
+Instead of demoing "Susan clicks Generate Report and gets a filled doc," demo "Susan says 'connect my trial data' and the agent discovers, validates, and wires every integration autonomously."
+
+What the demo should show:
+
+Act 1 — Discovery (Agent-driven)
+
+Susan opens the app, says "Set up ONCO-247"
+
+The Replit agent uses its connector APIs to enumerate what's available: which Google account is authenticated, what Notion workspaces are accessible, what databases exist
+
+Agent presents: "I found 3 Notion databases that look like clinical trial data (AE Log, Protocol Deviations, Regulatory Milestones). I found a Google Sheet called 'ONCO-247 Enrollment Extract' and a Doc template. Want me to wire these up?"
+
+Susan confirms. One click.
+
+Act 2 — Validation (Governance layer)
+
+Agent doesn't just connect — it validates schemas: "Your AE Log has columns: AE Description, Grade, Date Reported, Resolved. The report template expects ae_count and grade3_count. I can compute both from this schema. Confirmed."
+
+Agent checks permissions: "Replit integration has read/write access to all 3 databases. Google Drive connector has access to the sheet and template. Gmail connector can send on your behalf. All 5 integrations validated."
+
+Agent logs every connection decision with timestamp and rationale — that's the audit trail for FDA/sponsor review
+
+Act 3 — Self-healing (The agentic differentiator)
+
+When a connection breaks (token expires, DB gets reshared, schema changes), the agent detects it proactively and either fixes it or alerts Susan with a specific remediation
+
+"The Notion AE Log returned 0 results. I checked: the database has 5 rows but the Replit integration was removed. I've re-requested access. Approve?"
+
+This is what happened to us — the agent should have caught the cusor-vs-Replit mismatch automatically
+
+The Architecture on Replit:
+
+text
+┌─────────────────────────────────────────┐
+│           Connection Orchestrator        │
+│  (Replit Agent + Connectors API)         │
+├─────────────────────────────────────────┤
+│  Discovery    │ Enumerate all accessible │
+│  Layer        │ resources via each       │
+│               │ connector's API          │
+├───────────────┼─────────────────────────┤
+│  Schema       │ Read DB schemas, Sheet   │
+│  Validator    │ headers, Doc placeholders│
+│               │ Match against expected   │
+│               │ data contracts           │
+├───────────────┼─────────────────────────┤
+│  Permission   │ Test each connector with │
+│  Prober       │ a real API call (not     │
+│               │ hardcoded connected:true)│
+├───────────────┼─────────────────────────┤
+│  Health       │ Scheduled checks, auto-  │
+│  Monitor      │ remediate or alert       │
+├───────────────┼─────────────────────────┤
+│  Audit Log    │ Every connection event   │
+│               │ timestamped, rationale   │
+│               │ logged, exportable       │
+└─────────────────────────────────────────┘
+Why this sells to PwC/CROs:
+
+The settings page disappears. No one pastes IDs. The agent discovers resources and proposes connections. Susan approves.
+
+Governance is built-in. Every connection decision is logged. When the FDA asks "how was this data sourced?" there's a chain: Agent discovered DB → validated schema → confirmed permissions → generated report. All timestamped.
+
+The Replit angle is stronger. This isn't just "we built an app on Replit." It's "Replit's connector infrastructure + agent framework is the only platform where a non-developer can stand up a governed multi-integration workflow without IT." The connectors API (Notion, Google Drive, Gmail, Calendar) + Replit Agent + Replit DB = an enterprise integration platform that a research coordinator team owns.
+
+Differentiation from Zapier/Make. Those are point-to-point pipes. This is an intelligent orchestrator that understands the domain schema (CTCAE grades, protocol deviations, regulatory milestones) and validates the connections semantically, not just syntactically.
+
+What to tell sob:
+
+Stop fixing the Mark Final button. The new priority is:
+
+Build a /api/connections/discover endpoint that uses each connector to enumerate available resources (Notion DBs, Google Drive files, Calendar events)
+
+Build a /api/connections/validate endpoint that probes each connection with a real API call and validates the schema matches the expected data contract
+
+Replace the Settings page with a "Connection Setup" wizard that shows discovered resources and lets Susan approve them with one click
+
+Add real health checks to /integrations/status — actually ping each connector, not hardcode connected: true
+
+The report generation is the outcome. The connection orchestration is the product. Demo the connection, not the document.
