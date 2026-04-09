@@ -137,6 +137,27 @@ export interface SponsorReport {
   unreplacedPlaceholders: string[];
 }
 
+export interface RunMonthlyReportInput {
+  /** Set true to proceed despite stale enrollment data */
+  acknowledgeStale?: boolean;
+}
+
+export interface RunMonthlyReportResponse {
+  report?: SponsorReport;
+  /**
+   * Warning if sheet not updated in last 24h
+   * @nullable
+   */
+  stalenessWarning?: string | null;
+  /** If true, re-submit with acknowledgeStale=true to proceed */
+  requiresStaleAcknowledge: boolean;
+  /**
+   * Success message when report is in PI Review
+   * @nullable
+   */
+  message?: string | null;
+}
+
 export interface GenerateReportInput {
   /** Set true to proceed despite stale enrollment data */
   acknowledgeStale?: boolean;

@@ -2,6 +2,7 @@ import { Router, type IRouter } from "express";
 import {
   ListReportsResponse,
   GenerateReportResponse,
+  RunMonthlyReportResponse,
   SendReportToPiResponse,
   MarkReportApprovedResponse,
   MarkReportFinalResponse,
@@ -16,9 +17,24 @@ import {
   updateReport,
   listReports,
   getActiveReport,
+  type SponsorReportRecord,
 } from "../lib/reportHistory.js";
 
 const router: IRouter = Router();
+
+// ─── Shared error class ───────────────────────────────────────────────────────
+
+class ApiError extends Error {
+  constructor(
+    public readonly httpStatus: number,
+    message: string,
+  ) {
+    super(message);
+    this.name = "ApiError";
+  }
+}
+
+// ─── Notion client helper ─────────────────────────────────────────────────────
 
 async function getNotionClient() {
   try {
@@ -29,28 +45,14 @@ async function getNotionClient() {
   }
 }
 
-router.get("/reports", async (_req, res): Promise<void> => {
-  const reports = await listReports();
-  res.json(ListReportsResponse.parse(reports));
-});
+// ─── Core generate logic (shared by /generate and /run-monthly) ───────────────
 
-router.post("/reports/generate", async (req, res): Promise<void> => {
-  const { acknowledgeStale = false } = (req.body ?? {}) as { acknowledgeStale?: boolean };
+type GenerateOutcome =
+  | { requiresStaleAcknowledge: true; stalenessWarning: string }
+  | { requiresStaleAcknowledge: false; report: SponsorReportRecord; stalenessWarning: string | null };
 
+async function performGenerate(acknowledgeStale: boolean): Promise<GenerateOutcome> {
   const settings = await getSettings();
-
-  const active = await getActiveReport();
-  if (active) {
-    const dateStr = new Date(active.generatedAt).toLocaleDateString("en-US", {
-      month: "short",
-      day: "numeric",
-      year: "numeric",
-    });
-    res.status(409).json({
-      error: `Report from ${dateStr} is still in ${active.status} — finalize or discard before generating a new one.`,
-    });
-    return;
-  }
 
   const {
     googleSheetsId,
@@ -62,16 +64,13 @@ router.post("/reports/generate", async (req, res): Promise<void> => {
   } = settings;
 
   if (!googleSheetsId || !googleDocsTemplateId || !piEmail) {
-    res.status(503).json({
-      error:
-        "Missing required settings: Google Sheets ID, Google Docs Template ID, or PI Email. Configure them in Settings.",
-    });
-    return;
+    throw new ApiError(
+      503,
+      "Missing required settings: Google Sheets ID, Google Docs Template ID, or PI Email. Configure them in Settings.",
+    );
   }
 
-  const { getSheetFreshness, readEnrollmentData } = await import(
-    "../lib/googleSheets.js"
-  );
+  const { getSheetFreshness, readEnrollmentData } = await import("../lib/googleSheets.js");
   const {
     copyTemplate,
     fillPlaceholders,
@@ -81,34 +80,30 @@ router.post("/reports/generate", async (req, res): Promise<void> => {
     deleteDoc,
   } = await import("../lib/googleDocs.js");
 
+  // 1. Staleness check
   let stalenessWarning: string | null = null;
-
   try {
     const freshness = await getSheetFreshness(googleSheetsId);
     if (freshness.isStale && !acknowledgeStale) {
       const hoursAgo = Math.round(freshness.ageHours);
-      stalenessWarning = `Enrollment sheet last updated ${hoursAgo} hour${hoursAgo !== 1 ? "s" : ""} ago — confirm data is current before generating.`;
-      res.json(
-        GenerateReportResponse.parse({
-          requiresStaleAcknowledge: true,
-          stalenessWarning,
-        }),
-      );
-      return;
+      return {
+        requiresStaleAcknowledge: true,
+        stalenessWarning: `Enrollment sheet last updated ${hoursAgo} hour${hoursAgo !== 1 ? "s" : ""} ago — confirm data is current before generating.`,
+      };
     }
     if (freshness.isStale) {
       const hoursAgo = Math.round(freshness.ageHours);
       stalenessWarning = `Enrollment sheet last updated ${hoursAgo} hour${hoursAgo !== 1 ? "s" : ""} ago — data may be stale.`;
     }
   } catch (err) {
-    const errMsg = err instanceof Error ? err.message : String(err);
-    logger.error({ err }, "Failed to check sheet freshness");
-    res.status(503).json({
-      error: `Failed to check enrollment sheet freshness: ${errMsg}. Check Google Sheets ID and Drive connection in Settings.`,
-    });
-    return;
+    const msg = err instanceof Error ? err.message : String(err);
+    throw new ApiError(
+      503,
+      `Failed to check enrollment sheet freshness: ${msg}. Check Google Sheets ID and Drive connection in Settings.`,
+    );
   }
 
+  // 2. Read enrollment data
   let enrollment: { enrolled: number; screened: number; screenFailures: number; withdrawals: number };
   try {
     enrollment = await readEnrollmentData(
@@ -117,14 +112,14 @@ router.post("/reports/generate", async (req, res): Promise<void> => {
       settings.googleSheetHeaderRow ?? 1,
     );
   } catch (err) {
-    const errMsg = err instanceof Error ? err.message : String(err);
-    logger.error({ err }, "Failed to read enrollment data from Google Sheets");
-    res.status(503).json({
-      error: `Failed to read enrollment data from Google Sheets: ${errMsg}. Check sheet tab name and header row in Settings.`,
-    });
-    return;
+    const msg = err instanceof Error ? err.message : String(err);
+    throw new ApiError(
+      503,
+      `Failed to read enrollment data from Google Sheets: ${msg}. Check sheet tab name and header row in Settings.`,
+    );
   }
 
+  // 3. Read Notion data
   const notionClient = await getNotionClient();
   const { readAeSummary, readDeviationSummary, readNextMilestone } = await import(
     "../lib/notionAeDeviation.js"
@@ -142,12 +137,11 @@ router.post("/reports/generate", async (req, res): Promise<void> => {
         readNextMilestone(notionClient, notionRegulatoryDbId ?? ""),
       ]);
     } catch (err) {
-      const errMsg = err instanceof Error ? err.message : String(err);
-      logger.error({ err }, "Failed to read Notion data for report generation");
-      res.status(503).json({
-        error: `Failed to read clinical data from Notion: ${errMsg}. Check Notion database IDs and connection in Settings.`,
-      });
-      return;
+      const msg = err instanceof Error ? err.message : String(err);
+      throw new ApiError(
+        503,
+        `Failed to read clinical data from Notion: ${msg}. Check Notion database IDs and connection in Settings.`,
+      );
     }
   }
 
@@ -157,18 +151,18 @@ router.post("/reports/generate", async (req, res): Promise<void> => {
     year: "numeric",
   });
 
+  // 4. Copy template
   let docId: string;
   try {
-    docId = await copyTemplate(
-      googleDocsTemplateId,
-      `Sponsor Report — ${reportDate}`,
-    );
+    docId = await copyTemplate(googleDocsTemplateId, `Sponsor Report — ${reportDate}`);
   } catch (err) {
-    logger.error({ err }, "Failed to copy template doc");
-    res.status(503).json({ error: "Failed to copy report template from Google Drive. Check template ID and Drive permissions." });
-    return;
+    throw new ApiError(
+      503,
+      "Failed to copy report template from Google Drive. Check template ID and Drive permissions.",
+    );
   }
 
+  // 5. Fill placeholders — hard error, deletes orphan on failure
   try {
     await fillPlaceholders(docId, [
       { placeholder: "{{enrolled}}", value: String(enrollment.enrolled) },
@@ -184,15 +178,15 @@ router.post("/reports/generate", async (req, res): Promise<void> => {
       { placeholder: "{{report_date}}", value: reportDate },
     ]);
   } catch (err) {
-    logger.error({ err }, "Failed to fill placeholders — deleting orphaned doc");
     try { await deleteDoc(docId); } catch {}
-    const errMsg = err instanceof Error ? err.message : String(err);
-    res.status(503).json({
-      error: `Failed to fill report template placeholders: ${errMsg}. Check Google Docs connection and template ID.`,
-    });
-    return;
+    const msg = err instanceof Error ? err.message : String(err);
+    throw new ApiError(
+      503,
+      `Failed to fill report template placeholders: ${msg}. Check Google Docs connection and template ID.`,
+    );
   }
 
+  // 6. Scan for unreplaced placeholders (non-fatal)
   let unreplacedPlaceholders: string[] = [];
   try {
     unreplacedPlaceholders = await scanForUnreplacedPlaceholders(docId);
@@ -200,48 +194,31 @@ router.post("/reports/generate", async (req, res): Promise<void> => {
     logger.warn({ err }, "Could not scan for unreplaced placeholders");
   }
 
+  // 7. Grant PI writer access — hard error, deletes orphan on failure
   try {
     await grantWriterAccess(docId, piEmail);
   } catch (err) {
-    logger.error({ err }, "Failed to grant PI writer access — deleting orphaned doc");
-    try { await (await import("../lib/googleDocs.js")).deleteDoc(docId); } catch {}
-    const errMsg = err instanceof Error ? err.message : String(err);
-    res.status(503).json({
-      error: `Failed to grant PI writer access on the report doc: ${errMsg}. Check Google Drive permissions and PI email address.`,
-    });
-    return;
+    try { await deleteDoc(docId); } catch {}
+    const msg = err instanceof Error ? err.message : String(err);
+    throw new ApiError(
+      503,
+      `Failed to grant PI writer access on the report doc: ${msg}. Check Google Drive permissions and PI email address.`,
+    );
   }
 
   const docUrl = buildDocUrl(docId);
   const report = await createReport({ docUrl, docId, unreplacedPlaceholders });
 
-  res.json(
-    GenerateReportResponse.parse({
-      report,
-      stalenessWarning,
-      requiresStaleAcknowledge: false,
-    }),
-  );
-});
+  return { requiresStaleAcknowledge: false, report, stalenessWarning };
+}
 
-router.post("/reports/:reportId/send-to-pi", async (req, res): Promise<void> => {
-  const { reportId } = req.params;
+// ─── Core send-to-PI logic (shared by /send-to-pi and /run-monthly) ──────────
+
+async function performSendToPi(reportId: string, piEmail: string): Promise<SponsorReportRecord> {
   const report = await getReport(reportId);
-
-  if (!report) {
-    res.status(404).json({ error: "Report not found" });
-    return;
-  }
-
+  if (!report) throw new ApiError(404, "Report not found");
   if (report.status !== "Draft") {
-    res.status(409).json({ error: `Report is in ${report.status} status — can only send Draft reports.` });
-    return;
-  }
-
-  const settings = await getSettings();
-  if (!settings.piEmail) {
-    res.status(503).json({ error: "PI email not configured. Set it in Settings." });
-    return;
+    throw new ApiError(409, `Report is in ${report.status} status — can only send Draft reports.`);
   }
 
   const { sendPiReviewEmail } = await import("../lib/gmail.js");
@@ -252,18 +229,10 @@ router.post("/reports/:reportId/send-to-pi", async (req, res): Promise<void> => 
   });
 
   try {
-    await sendPiReviewEmail({
-      piEmail: settings.piEmail,
-      docUrl: report.docUrl,
-      reportDate,
-    });
+    await sendPiReviewEmail({ piEmail, docUrl: report.docUrl, reportDate });
   } catch (err) {
-    const errMsg = err instanceof Error ? err.message : String(err);
-    logger.error({ err }, "Failed to send PI review email");
-    res.status(503).json({
-      error: `Failed to send email to PI: ${errMsg}. Check Gmail connection and PI email address.`,
-    });
-    return;
+    const msg = err instanceof Error ? err.message : String(err);
+    throw new ApiError(503, `Failed to send email to PI: ${msg}. Check Gmail connection and PI email address.`);
   }
 
   const updated = await updateReport(reportId, {
@@ -271,19 +240,151 @@ router.post("/reports/:reportId/send-to-pi", async (req, res): Promise<void> => 
     sentToPiAt: new Date().toISOString(),
     lastNagAt: new Date().toISOString(),
   });
+  if (!updated) throw new ApiError(404, "Report not found after update");
+  return updated;
+}
 
-  res.json(SendReportToPiResponse.parse(updated));
+// ─── Routes ───────────────────────────────────────────────────────────────────
+
+router.get("/reports", async (_req, res): Promise<void> => {
+  const reports = await listReports();
+  res.json(ListReportsResponse.parse(reports));
 });
 
+// POST /reports/run-monthly — 1-click: generate + send to PI in one call
+router.post("/reports/run-monthly", async (req, res): Promise<void> => {
+  const { acknowledgeStale = false } = (req.body ?? {}) as { acknowledgeStale?: boolean };
+
+  const active = await getActiveReport();
+  if (active) {
+    const dateStr = new Date(active.generatedAt).toLocaleDateString("en-US", {
+      month: "short", day: "numeric", year: "numeric",
+    });
+    res.status(409).json({
+      error: `Report from ${dateStr} is still in ${active.status} — finalize or discard before generating a new one.`,
+    });
+    return;
+  }
+
+  let genOutcome: GenerateOutcome;
+  try {
+    genOutcome = await performGenerate(acknowledgeStale);
+  } catch (err) {
+    if (err instanceof ApiError) {
+      res.status(err.httpStatus).json({ error: err.message });
+    } else {
+      res.status(500).json({ error: String(err) });
+    }
+    return;
+  }
+
+  if (genOutcome.requiresStaleAcknowledge) {
+    res.json(
+      RunMonthlyReportResponse.parse({
+        requiresStaleAcknowledge: true,
+        stalenessWarning: genOutcome.stalenessWarning,
+      }),
+    );
+    return;
+  }
+
+  const settings = await getSettings();
+  let finalReport: SponsorReportRecord;
+  try {
+    finalReport = await performSendToPi(genOutcome.report.id, settings.piEmail!);
+  } catch (err) {
+    if (err instanceof ApiError) {
+      res.status(err.httpStatus).json({ error: err.message });
+    } else {
+      res.status(500).json({ error: String(err) });
+    }
+    return;
+  }
+
+  res.json(
+    RunMonthlyReportResponse.parse({
+      report: finalReport,
+      stalenessWarning: genOutcome.stalenessWarning,
+      requiresStaleAcknowledge: false,
+      message: `Report generated and sent to ${settings.piEmail} for review. Waiting for PI approval — your only remaining action.`,
+    }),
+  );
+});
+
+// POST /reports/generate — step-by-step flow (manual path)
+router.post("/reports/generate", async (req, res): Promise<void> => {
+  const { acknowledgeStale = false } = (req.body ?? {}) as { acknowledgeStale?: boolean };
+
+  const active = await getActiveReport();
+  if (active) {
+    const dateStr = new Date(active.generatedAt).toLocaleDateString("en-US", {
+      month: "short", day: "numeric", year: "numeric",
+    });
+    res.status(409).json({
+      error: `Report from ${dateStr} is still in ${active.status} — finalize or discard before generating a new one.`,
+    });
+    return;
+  }
+
+  let outcome: GenerateOutcome;
+  try {
+    outcome = await performGenerate(acknowledgeStale);
+  } catch (err) {
+    if (err instanceof ApiError) {
+      res.status(err.httpStatus).json({ error: err.message });
+    } else {
+      res.status(500).json({ error: String(err) });
+    }
+    return;
+  }
+
+  if (outcome.requiresStaleAcknowledge) {
+    res.json(
+      GenerateReportResponse.parse({
+        requiresStaleAcknowledge: true,
+        stalenessWarning: outcome.stalenessWarning,
+      }),
+    );
+    return;
+  }
+
+  res.json(
+    GenerateReportResponse.parse({
+      report: outcome.report,
+      stalenessWarning: outcome.stalenessWarning,
+      requiresStaleAcknowledge: false,
+    }),
+  );
+});
+
+// POST /reports/:reportId/send-to-pi
+router.post("/reports/:reportId/send-to-pi", async (req, res): Promise<void> => {
+  const { reportId } = req.params;
+  const settings = await getSettings();
+
+  if (!settings.piEmail) {
+    res.status(503).json({ error: "PI email not configured. Set it in Settings." });
+    return;
+  }
+
+  try {
+    const updated = await performSendToPi(reportId, settings.piEmail);
+    res.json(SendReportToPiResponse.parse(updated));
+  } catch (err) {
+    if (err instanceof ApiError) {
+      res.status(err.httpStatus).json({ error: err.message });
+    } else {
+      res.status(500).json({ error: String(err) });
+    }
+  }
+});
+
+// POST /reports/:reportId/mark-approved
 router.post("/reports/:reportId/mark-approved", async (req, res): Promise<void> => {
   const { reportId } = req.params;
   const report = await getReport(reportId);
 
-  if (!report) {
-    res.status(404).json({ error: "Report not found" });
-    return;
-  }
-
+  if (!report) { res.status(404).json({ error: "Report not found" }); return; }
   if (report.status !== "PI Review") {
     res.status(409).json({ error: `Report is in ${report.status} status — can only approve PI Review reports.` });
     return;
@@ -293,19 +394,15 @@ router.post("/reports/:reportId/mark-approved", async (req, res): Promise<void> 
     status: "Approved",
     approvedAt: new Date().toISOString(),
   });
-
   res.json(MarkReportApprovedResponse.parse(updated));
 });
 
+// POST /reports/:reportId/mark-final
 router.post("/reports/:reportId/mark-final", async (req, res): Promise<void> => {
   const { reportId } = req.params;
   const report = await getReport(reportId);
 
-  if (!report) {
-    res.status(404).json({ error: "Report not found" });
-    return;
-  }
-
+  if (!report) { res.status(404).json({ error: "Report not found" }); return; }
   if (report.status !== "Approved") {
     res.status(409).json({ error: `Report is in ${report.status} status — can only finalize Approved reports.` });
     return;
@@ -315,67 +412,52 @@ router.post("/reports/:reportId/mark-final", async (req, res): Promise<void> => 
 
   if (!settings.sponsorCallEventId) {
     res.status(400).json({
-      error: "Sponsor Call Event ID is not configured. Set it in Settings before finalizing a report — the report link must be appended to the sponsor call calendar event.",
+      error: "Sponsor Call Event ID is not configured. Set it in Settings before finalizing — the report link must be appended to the sponsor call calendar event.",
     });
     return;
   }
 
-  if (settings.sponsorCallEventId) {
-    const { getUncachableGoogleCalendarClient } = await import(
-      "../lib/googleCalendarClient.js"
-    );
-    let calendar: Awaited<ReturnType<typeof getUncachableGoogleCalendarClient>>;
-    try {
-      calendar = await getUncachableGoogleCalendarClient();
-    } catch (err) {
-      const errMsg = err instanceof Error ? err.message : String(err);
-      logger.error({ err }, "Could not connect to Google Calendar for mark-final");
-      res.status(503).json({ error: `Could not connect to Google Calendar: ${errMsg}` });
-      return;
-    }
-    const calId = settings.googleCalendarId || "primary";
-    try {
-      const event = await calendar.events.get({
-        calendarId: calId,
-        eventId: settings.sponsorCallEventId,
-      });
-      const existingDesc = event.data.description ?? "";
-      const appendedDesc =
-        existingDesc +
-        (existingDesc ? "\n\n" : "") +
-        `Sponsor Report (${new Date().toLocaleDateString("en-US")}): ${report.docUrl}`;
-      await calendar.events.patch({
-        calendarId: calId,
-        eventId: settings.sponsorCallEventId,
-        requestBody: { description: appendedDesc },
-      });
-    } catch (err) {
-      const errMsg = err instanceof Error ? err.message : String(err);
-      logger.error({ err }, "Failed to update sponsor call calendar event");
-      res.status(503).json({
-        error: `Failed to update sponsor call calendar event: ${errMsg}. Check the Sponsor Call Event ID in Settings and Calendar permissions.`,
-      });
-      return;
-    }
+  const { getUncachableGoogleCalendarClient } = await import("../lib/googleCalendarClient.js");
+  let calendar: Awaited<ReturnType<typeof getUncachableGoogleCalendarClient>>;
+  try {
+    calendar = await getUncachableGoogleCalendarClient();
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    res.status(503).json({ error: `Could not connect to Google Calendar: ${msg}` });
+    return;
   }
 
-  const updated = await updateReport(reportId, {
-    status: "Sent",
-    finalizedAt: new Date().toISOString(),
-  });
+  const calId = settings.googleCalendarId || "primary";
+  try {
+    const event = await calendar.events.get({ calendarId: calId, eventId: settings.sponsorCallEventId });
+    const existingDesc = event.data.description ?? "";
+    const appendedDesc =
+      existingDesc +
+      (existingDesc ? "\n\n" : "") +
+      `Sponsor Report (${new Date().toLocaleDateString("en-US")}): ${report.docUrl}`;
+    await calendar.events.patch({
+      calendarId: calId,
+      eventId: settings.sponsorCallEventId,
+      requestBody: { description: appendedDesc },
+    });
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    res.status(503).json({
+      error: `Failed to update sponsor call calendar event: ${msg}. Check the Sponsor Call Event ID in Settings and Calendar permissions.`,
+    });
+    return;
+  }
 
+  const updated = await updateReport(reportId, { status: "Sent", finalizedAt: new Date().toISOString() });
   res.json(MarkReportFinalResponse.parse(updated));
 });
 
+// POST /reports/:reportId/discard
 router.post("/reports/:reportId/discard", async (req, res): Promise<void> => {
   const { reportId } = req.params;
   const report = await getReport(reportId);
 
-  if (!report) {
-    res.status(404).json({ error: "Report not found" });
-    return;
-  }
-
+  if (!report) { res.status(404).json({ error: "Report not found" }); return; }
   if (report.status !== "Draft") {
     res.status(409).json({ error: `Report is in ${report.status} status — only Draft reports can be discarded.` });
     return;
@@ -385,10 +467,9 @@ router.post("/reports/:reportId/discard", async (req, res): Promise<void> => {
     const { deleteDoc } = await import("../lib/googleDocs.js");
     await deleteDoc(report.docId);
   } catch (err) {
-    const errMsg = err instanceof Error ? err.message : String(err);
-    logger.error({ err }, "Failed to delete Google Doc during discard");
+    const msg = err instanceof Error ? err.message : String(err);
     res.status(503).json({
-      error: `Failed to delete the report document from Google Drive: ${errMsg}. Check Drive permissions and try again.`,
+      error: `Failed to delete the report document from Google Drive: ${msg}. Check Drive permissions and try again.`,
     });
     return;
   }
@@ -397,6 +478,7 @@ router.post("/reports/:reportId/discard", async (req, res): Promise<void> => {
   res.json(DiscardReportResponse.parse(updated));
 });
 
+// POST /internal/nag-check
 router.post("/internal/nag-check", async (req, res): Promise<void> => {
   const nagSecret = process.env.NAG_SECRET;
   if (nagSecret) {
@@ -418,29 +500,17 @@ router.post("/internal/nag-check", async (req, res): Promise<void> => {
 
   for (const report of piReviewReports) {
     const lastNagAt = report.lastNagAt ?? report.sentToPiAt ?? report.generatedAt;
-    const elapsedHours =
-      (Date.now() - new Date(lastNagAt).getTime()) / (1000 * 60 * 60);
-
+    const elapsedHours = (Date.now() - new Date(lastNagAt).getTime()) / (1000 * 60 * 60);
     if (elapsedHours < nagIntervalHours) continue;
 
     const reportDate = new Date(report.generatedAt).toLocaleDateString("en-US", {
-      month: "long",
-      day: "numeric",
-      year: "numeric",
+      month: "long", day: "numeric", year: "numeric",
     });
 
     try {
-      if (!settings.piEmail) {
-        errors.push(`Report ${report.id}: PI email not configured`);
-        continue;
-      }
+      if (!settings.piEmail) { errors.push(`Report ${report.id}: PI email not configured`); continue; }
       const { sendNagEmail } = await import("../lib/gmail.js");
-      await sendNagEmail({
-        piEmail: settings.piEmail,
-        docUrl: report.docUrl,
-        reportDate,
-        nagCount: 1,
-      });
+      await sendNagEmail({ piEmail: settings.piEmail, docUrl: report.docUrl, reportDate, nagCount: 1 });
       await updateReport(report.id, { lastNagAt: new Date().toISOString() });
       nagsSent++;
     } catch (err) {

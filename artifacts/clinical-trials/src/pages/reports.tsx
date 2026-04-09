@@ -4,6 +4,7 @@ import {
   useListReports,
   getListReportsQueryKey,
   useGenerateReport,
+  useRunMonthlyReport,
   useSendReportToPi,
   useMarkReportApproved,
   useMarkReportFinal,
@@ -34,6 +35,7 @@ import {
   Clock,
   RotateCcw,
   CheckCheck,
+  Zap,
 } from "lucide-react";
 import { format, parseISO } from "date-fns";
 import { useToast } from "@/hooks/use-toast";
@@ -54,6 +56,8 @@ interface SponsorReport {
   finalizedAt?: string | null;
   unreplacedPlaceholders: string[];
 }
+
+type PendingFlow = "run-monthly" | "generate";
 
 function StatusBadge({ status }: { status: ReportStatus }) {
   switch (status) {
@@ -146,9 +150,7 @@ function ReportCard({
           </div>
         </CardHeader>
         <CardContent className="space-y-4">
-          {!isDiscarded && (
-            <LifecycleBar status={report.status} />
-          )}
+          {!isDiscarded && <LifecycleBar status={report.status} />}
 
           {report.unreplacedPlaceholders.length > 0 && (
             <div className="flex items-start gap-2 rounded-md border border-amber-200 bg-amber-50 p-3 text-sm text-amber-800">
@@ -177,64 +179,51 @@ function ReportCard({
                           },
                           onError: (err: unknown) => {
                             const msg = (err as { response?: { data?: { error?: string } } })?.response?.data?.error ?? (err instanceof Error ? err.message : "Unknown error");
-                            toast({ title: "Email Failed", description: msg, variant: "destructive" });
+                            toast({ title: "Failed to Send", description: msg, variant: "destructive" });
                           },
                         },
                       );
                     }}
                     disabled={sendToPi.isPending}
-                    className="gap-1"
                   >
-                    <Send className="h-3.5 w-3.5" />
-                    {sendToPi.isPending ? "Sending..." : "Send to PI for Review"}
+                    <Send className="h-3.5 w-3.5 mr-1.5" />
+                    {sendToPi.isPending ? "Sending..." : "Send to PI"}
                   </Button>
                   <Button
                     size="sm"
                     variant="outline"
                     onClick={() => setConfirmDiscard(true)}
-                    disabled={discardReport.isPending}
-                    className="gap-1 text-destructive hover:text-destructive"
+                    className="text-destructive hover:text-destructive"
                   >
-                    <Trash2 className="h-3.5 w-3.5" />
-                    Discard Draft
+                    <Trash2 className="h-3.5 w-3.5 mr-1.5" />
+                    Discard
                   </Button>
                 </>
               )}
 
               {report.status === "PI Review" && (
-                <div className="flex flex-col gap-2 w-full">
-                  <div className="flex items-center gap-2 text-sm text-amber-700 bg-amber-50 border border-amber-200 rounded-md px-3 py-2">
-                    <Clock className="h-4 w-4 shrink-0" />
-                    <span>
-                      Waiting for PI review.
-                      {report.lastNagAt &&
-                        ` Last reminder sent ${format(parseISO(report.lastNagAt), "MMM d, h:mm a")}.`}
-                    </span>
-                  </div>
-                  <Button
-                    size="sm"
-                    onClick={() => {
-                      markApproved.mutate(
-                        { reportId: report.id },
-                        {
-                          onSuccess: () => {
-                            toast({ title: "Marked as PI Approved", description: "Report status advanced to Approved." });
-                            onRefresh();
-                          },
-                          onError: (err: unknown) => {
-                            const msg = (err as { response?: { data?: { error?: string } } })?.response?.data?.error ?? "Unknown error";
-                            toast({ title: "Error", description: msg, variant: "destructive" });
-                          },
+                <Button
+                  size="sm"
+                  onClick={() => {
+                    markApproved.mutate(
+                      { reportId: report.id },
+                      {
+                        onSuccess: () => {
+                          toast({ title: "Report Approved", description: "Marked as approved by PI." });
+                          onRefresh();
                         },
-                      );
-                    }}
-                    disabled={markApproved.isPending}
-                    className="gap-1 w-fit"
-                  >
-                    <CheckCircle2 className="h-3.5 w-3.5" />
-                    {markApproved.isPending ? "Marking..." : "Mark as PI Approved"}
-                  </Button>
-                </div>
+                        onError: (err: unknown) => {
+                          const msg = (err as { response?: { data?: { error?: string } } })?.response?.data?.error ?? "Unknown error";
+                          toast({ title: "Error", description: msg, variant: "destructive" });
+                        },
+                      },
+                    );
+                  }}
+                  disabled={markApproved.isPending}
+                >
+                  <CheckCircle2 className="h-3.5 w-3.5 mr-1.5" />
+                  {markApproved.isPending ? "Approving..." : "Mark Approved"}
+                </Button>
               )}
 
               {report.status === "Approved" && (
@@ -245,7 +234,7 @@ function ReportCard({
                       { reportId: report.id },
                       {
                         onSuccess: () => {
-                          toast({ title: "Report Finalized", description: "Sponsor call calendar event updated with report link." });
+                          toast({ title: "Report Finalized", description: "Report marked as sent to sponsor." });
                           onRefresh();
                         },
                         onError: (err: unknown) => {
@@ -256,10 +245,9 @@ function ReportCard({
                     );
                   }}
                   disabled={markFinal.isPending}
-                  className="gap-1"
                 >
-                  <Flag className="h-3.5 w-3.5" />
-                  {markFinal.isPending ? "Finalizing..." : "Mark Final + Update Call"}
+                  <Flag className="h-3.5 w-3.5 mr-1.5" />
+                  {markFinal.isPending ? "Finalizing..." : "Mark Final"}
                 </Button>
               )}
             </div>
@@ -270,9 +258,9 @@ function ReportCard({
       <AlertDialog open={confirmDiscard} onOpenChange={setConfirmDiscard}>
         <AlertDialogContent>
           <AlertDialogHeader>
-            <AlertDialogTitle>Discard Draft Report?</AlertDialogTitle>
+            <AlertDialogTitle>Discard this report?</AlertDialogTitle>
             <AlertDialogDescription>
-              This will permanently delete the Google Doc from Drive and mark the report as Discarded. This action cannot be undone.
+              The Google Doc will be permanently deleted from Drive. This cannot be undone.
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
@@ -283,7 +271,7 @@ function ReportCard({
                   { reportId: report.id },
                   {
                     onSuccess: () => {
-                      toast({ title: "Report Discarded", description: "The draft and its Google Doc have been deleted." });
+                      toast({ title: "Report Discarded", description: "The draft has been deleted." });
                       setConfirmDiscard(false);
                       onRefresh();
                     },
@@ -313,14 +301,51 @@ export default function SponsorReports() {
     query: { enabled: true, queryKey: getListReportsQueryKey() },
   });
 
+  const runMonthly = useRunMonthlyReport();
   const generateReport = useGenerateReport();
 
   const [stalenessWarning, setStalenessWarning] = useState<string | null>(null);
-  const [pendingGenerate, setPendingGenerate] = useState(false);
+  const [pendingFlow, setPendingFlow] = useState<PendingFlow | null>(null);
 
   function invalidateReports() {
     queryClient.invalidateQueries({ queryKey: getListReportsQueryKey() });
     refetch();
+  }
+
+  function handleRunMonthly(acknowledgeStale = false) {
+    runMonthly.mutate(
+      { data: { acknowledgeStale } },
+      {
+        onSuccess: (result) => {
+          if (result.requiresStaleAcknowledge && result.stalenessWarning) {
+            setStalenessWarning(result.stalenessWarning);
+            setPendingFlow("run-monthly");
+            return;
+          }
+          if (result.stalenessWarning) {
+            toast({
+              title: "Data Freshness Warning",
+              description: result.stalenessWarning,
+            });
+          }
+          invalidateReports();
+          toast({
+            title: "Report sent to PI",
+            description: result.message ?? "Report generated and emailed to PI for review.",
+          });
+        },
+        onError: (err: unknown) => {
+          const errData = err as { response?: { data?: { error?: string }; status?: number } };
+          const status = errData?.response?.status;
+          const msg = errData?.response?.data?.error ?? (err instanceof Error ? err.message : "Unknown error");
+          if (status === 409) {
+            toast({ title: "Cannot Run", description: msg, variant: "destructive" });
+          } else {
+            toast({ title: "Run Failed", description: msg, variant: "destructive" });
+          }
+        },
+      },
+    );
   }
 
   function handleGenerate(acknowledgeStale = false) {
@@ -330,14 +355,13 @@ export default function SponsorReports() {
         onSuccess: (result) => {
           if (result.requiresStaleAcknowledge && result.stalenessWarning) {
             setStalenessWarning(result.stalenessWarning);
-            setPendingGenerate(true);
+            setPendingFlow("generate");
             return;
           }
           if (result.stalenessWarning) {
             toast({
               title: "Data Freshness Warning",
               description: result.stalenessWarning,
-              variant: "destructive",
             });
           }
           invalidateReports();
@@ -362,28 +386,52 @@ export default function SponsorReports() {
     );
   }
 
+  function handleStalenessConfirm() {
+    const flow = pendingFlow;
+    setStalenessWarning(null);
+    setPendingFlow(null);
+    if (flow === "run-monthly") handleRunMonthly(true);
+    else if (flow === "generate") handleGenerate(true);
+  }
+
   const activeReport = reports?.find(
     (r) => r.status === "PI Review" || r.status === "Approved",
   );
 
+  const isPending = runMonthly.isPending || generateReport.isPending;
+
   return (
     <LayoutShell>
       <div className="space-y-6">
-        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+        <div className="flex flex-col sm:flex-row sm:items-start justify-between gap-4">
           <div>
             <h1 className="text-3xl font-bold tracking-tight">Sponsor Report Co-Pilot</h1>
             <p className="text-muted-foreground mt-2">
-              Generate, review, and finalize monthly sponsor reports in one place.
+              One click generates, fills, and emails the monthly report to your PI.
             </p>
           </div>
-          <Button
-            onClick={() => handleGenerate(false)}
-            disabled={generateReport.isPending}
-            className="gap-2"
-          >
-            <RotateCcw className={`h-4 w-4 ${generateReport.isPending ? "animate-spin" : ""}`} />
-            {generateReport.isPending ? "Generating..." : "Generate Report"}
-          </Button>
+
+          <div className="flex items-center gap-2 shrink-0">
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => handleGenerate(false)}
+              disabled={isPending}
+              title="Generate draft only — you will send it manually"
+            >
+              <RotateCcw className={`h-3.5 w-3.5 mr-1.5 ${generateReport.isPending ? "animate-spin" : ""}`} />
+              {generateReport.isPending ? "Generating..." : "Draft Only"}
+            </Button>
+
+            <Button
+              onClick={() => handleRunMonthly(false)}
+              disabled={isPending}
+              className="gap-2"
+            >
+              <Zap className={`h-4 w-4 ${runMonthly.isPending ? "animate-pulse" : ""}`} />
+              {runMonthly.isPending ? "Running..." : "Run Monthly Report"}
+            </Button>
+          </div>
         </div>
 
         {activeReport && (
@@ -421,12 +469,13 @@ export default function SponsorReports() {
         ) : (
           <Card>
             <CardContent className="py-16 text-center">
-              <div className="flex h-16 w-16 items-center justify-center rounded-full bg-muted mx-auto mb-4">
-                <FileText className="h-8 w-8 text-muted-foreground" />
+              <div className="flex h-16 w-16 items-center justify-center rounded-full bg-primary/10 mx-auto mb-4">
+                <Zap className="h-8 w-8 text-primary" />
               </div>
-              <h3 className="text-lg font-semibold">No reports yet</h3>
+              <h3 className="text-lg font-semibold">Ready to run your first report</h3>
               <p className="text-muted-foreground text-sm mt-2 max-w-sm mx-auto">
-                Click <strong>Generate Report</strong> to pull enrollment data from Google Sheets, AE/deviation summaries from Notion, and create a pre-filled sponsor report draft.
+                Click <strong>Run Monthly Report</strong> to pull enrollment data, AE/deviation summaries,
+                and email a pre-filled report draft directly to your PI.
               </p>
               <p className="text-muted-foreground text-xs mt-4">
                 Make sure your{" "}
@@ -441,11 +490,11 @@ export default function SponsorReports() {
       </div>
 
       <AlertDialog
-        open={!!stalenessWarning && pendingGenerate}
+        open={!!stalenessWarning && !!pendingFlow}
         onOpenChange={(open) => {
           if (!open) {
             setStalenessWarning(null);
-            setPendingGenerate(false);
+            setPendingFlow(null);
           }
         }}
       >
@@ -457,20 +506,14 @@ export default function SponsorReports() {
             </AlertDialogTitle>
             <AlertDialogDescription>
               {stalenessWarning}
-              {"\n\n"}Do you want to proceed with generating the report anyway?
+              {"\n\n"}Do you want to proceed anyway?
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
-            <AlertDialogCancel onClick={() => { setStalenessWarning(null); setPendingGenerate(false); }}>
+            <AlertDialogCancel onClick={() => { setStalenessWarning(null); setPendingFlow(null); }}>
               Cancel
             </AlertDialogCancel>
-            <AlertDialogAction
-              onClick={() => {
-                setStalenessWarning(null);
-                setPendingGenerate(false);
-                handleGenerate(true);
-              }}
-            >
+            <AlertDialogAction onClick={handleStalenessConfirm}>
               Proceed Anyway
             </AlertDialogAction>
           </AlertDialogFooter>

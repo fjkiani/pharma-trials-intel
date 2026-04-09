@@ -142,6 +142,45 @@ paths:
                 items:
                   $ref: "#/components/schemas/SponsorReport"
 
+  /reports/run-monthly:
+    post:
+      operationId: runMonthlyReport
+      tags: [reports]
+      summary: One-click monthly report — generate + send to PI
+      description: |
+        Chains the full pre-PI workflow in a single call:
+        1. Checks enrollment sheet freshness (returns staleness gate if >24h)
+        2. Fetches data from Sheets + Notion
+        3. Copies and fills the Google Docs template
+        4. Grants PI writer access
+        5. Sends PI review email via Gmail
+        Returns when the report is in PI Review status. Susan's only remaining action is to approve.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/RunMonthlyReportInput"
+      responses:
+        "200":
+          description: Report generated and sent to PI for review
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/RunMonthlyReportResponse"
+        "409":
+          description: Concurrent report guard — active report already in progress
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "503":
+          description: Required integration not connected or call failed
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
   /reports/generate:
     post:
       operationId: generateReport
@@ -480,6 +519,31 @@ components:
         - status
         - generatedAt
         - unreplacedPlaceholders
+
+    RunMonthlyReportInput:
+      type: object
+      properties:
+        acknowledgeStale:
+          type: boolean
+          description: Set true to proceed despite stale enrollment data
+      required: []
+
+    RunMonthlyReportResponse:
+      type: object
+      properties:
+        report:
+          $ref: "#/components/schemas/SponsorReport"
+        stalenessWarning:
+          type: ["string", "null"]
+          description: Warning if sheet not updated in last 24h
+        requiresStaleAcknowledge:
+          type: boolean
+          description: If true, re-submit with acknowledgeStale=true to proceed
+        message:
+          type: ["string", "null"]
+          description: Success message when report is in PI Review
+      required:
+        - requiresStaleAcknowledge
 
     GenerateReportInput:
       type: object

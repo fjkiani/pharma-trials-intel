@@ -17,5 +17,7 @@ export * from "./nagCheckResponse";
 export * from "./regulatoryDocument";
 export * from "./regulatoryDocumentStatus";
 export * from "./regulatorySummary";
+export * from "./runMonthlyReportInput";
+export * from "./runMonthlyReportResponse";
 export * from "./sponsorReport";
 export * from "./sponsorReportStatus";

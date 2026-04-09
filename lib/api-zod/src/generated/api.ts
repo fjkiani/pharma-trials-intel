@@ -138,6 +138,54 @@ export const ListReportsResponseItem = zod.object({
 export const ListReportsResponse = zod.array(ListReportsResponseItem);
 
 /**
+ * Chains the full pre-PI workflow in a single call:
+1. Checks enrollment sheet freshness (returns staleness gate if >24h)
+2. Fetches data from Sheets + Notion
+3. Copies and fills the Google Docs template
+4. Grants PI writer access
+5. Sends PI review email via Gmail
+Returns when the report is in PI Review status. Susan's only remaining action is to approve.
+
+ * @summary One-click monthly report — generate + send to PI
+ */
+export const RunMonthlyReportBody = zod.object({
+  acknowledgeStale: zod
+    .boolean()
+    .optional()
+    .describe("Set true to proceed despite stale enrollment data"),
+});
+
+export const RunMonthlyReportResponse = zod.object({
+  report: zod
+    .object({
+      id: zod.string().describe("UUID"),
+      docUrl: zod.string().describe("Google Docs URL"),
+      docId: zod.string().describe("Google Drive file ID"),
+      status: zod.enum(["Draft", "PI Review", "Approved", "Sent", "Discarded"]),
+      generatedAt: zod.string().describe("ISO 8601 timestamp"),
+      sentToPiAt: zod.string().nullish().describe("ISO 8601 timestamp"),
+      lastNagAt: zod.string().nullish().describe("ISO 8601 timestamp"),
+      approvedAt: zod.string().nullish().describe("ISO 8601 timestamp"),
+      finalizedAt: zod.string().nullish().describe("ISO 8601 timestamp"),
+      unreplacedPlaceholders: zod
+        .array(zod.string())
+        .describe("Any {{...}} placeholders not replaced during generation"),
+    })
+    .optional(),
+  stalenessWarning: zod
+    .string()
+    .nullish()
+    .describe("Warning if sheet not updated in last 24h"),
+  requiresStaleAcknowledge: zod
+    .boolean()
+    .describe("If true, re-submit with acknowledgeStale=true to proceed"),
+  message: zod
+    .string()
+    .nullish()
+    .describe("Success message when report is in PI Review"),
+});
+
+/**
  * Fetches data from Sheets/Notion, copies the template Doc, fills placeholders, grants PI access. Returns staleness warning if sheet >24h old.
  * @summary Generate sponsor report
  */

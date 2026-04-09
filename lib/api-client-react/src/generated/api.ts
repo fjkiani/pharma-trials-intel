@@ -27,6 +27,8 @@ import type {
   NagCheckResponse,
   RegulatoryDocument,
   RegulatorySummary,
+  RunMonthlyReportInput,
+  RunMonthlyReportResponse,
   SponsorReport,
 } from "./api.schemas";
 
@@ -588,6 +590,100 @@ export function useListReports<
 
   return { ...query, queryKey: queryOptions.queryKey };
 }
+
+/**
+ * Chains the full pre-PI workflow in a single call:
+1. Checks enrollment sheet freshness (returns staleness gate if >24h)
+2. Fetches data from Sheets + Notion
+3. Copies and fills the Google Docs template
+4. Grants PI writer access
+5. Sends PI review email via Gmail
+Returns when the report is in PI Review status. Susan's only remaining action is to approve.
+
+ * @summary One-click monthly report — generate + send to PI
+ */
+export const getRunMonthlyReportUrl = () => {
+  return `/api/reports/run-monthly`;
+};
+
+export const runMonthlyReport = async (
+  runMonthlyReportInput: RunMonthlyReportInput,
+  options?: RequestInit,
+): Promise<RunMonthlyReportResponse> => {
+  return customFetch<RunMonthlyReportResponse>(getRunMonthlyReportUrl(), {
+    ...options,
+    method: "POST",
+    headers: { "Content-Type": "application/json", ...options?.headers },
+    body: JSON.stringify(runMonthlyReportInput),
+  });
+};
+
+export const getRunMonthlyReportMutationOptions = <
+  TError = ErrorType<ErrorResponse>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof runMonthlyReport>>,
+    TError,
+    { data: BodyType<RunMonthlyReportInput> },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationOptions<
+  Awaited<ReturnType<typeof runMonthlyReport>>,
+  TError,
+  { data: BodyType<RunMonthlyReportInput> },
+  TContext
+> => {
+  const mutationKey = ["runMonthlyReport"];
+  const { mutation: mutationOptions, request: requestOptions } = options
+    ? options.mutation &&
+      "mutationKey" in options.mutation &&
+      options.mutation.mutationKey
+      ? options
+      : { ...options, mutation: { ...options.mutation, mutationKey } }
+    : { mutation: { mutationKey }, request: undefined };
+
+  const mutationFn: MutationFunction<
+    Awaited<ReturnType<typeof runMonthlyReport>>,
+    { data: BodyType<RunMonthlyReportInput> }
+  > = (props) => {
+    const { data } = props ?? {};
+
+    return runMonthlyReport(data, requestOptions);
+  };
+
+  return { mutationFn, ...mutationOptions };
+};
+
+export type RunMonthlyReportMutationResult = NonNullable<
+  Awaited<ReturnType<typeof runMonthlyReport>>
+>;
+export type RunMonthlyReportMutationBody = BodyType<RunMonthlyReportInput>;
+export type RunMonthlyReportMutationError = ErrorType<ErrorResponse>;
+
+/**
+ * @summary One-click monthly report — generate + send to PI
+ */
+export const useRunMonthlyReport = <
+  TError = ErrorType<ErrorResponse>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof runMonthlyReport>>,
+    TError,
+    { data: BodyType<RunMonthlyReportInput> },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationResult<
+  Awaited<ReturnType<typeof runMonthlyReport>>,
+  TError,
+  { data: BodyType<RunMonthlyReportInput> },
+  TContext
+> => {
+  return useMutation(getRunMonthlyReportMutationOptions(options));
+};
 
 /**
  * Fetches data from Sheets/Notion, copies the template Doc, fills placeholders, grants PI access. Returns staleness warning if sheet >24h old.
