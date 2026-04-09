@@ -330,23 +330,47 @@ export default function Settings() {
               <TableBody>
                 <TableRow>
                   <TableCell className="font-mono text-xs">{"{{enrolled}}"}</TableCell>
-                  <TableCell>Total number of enrolled subjects</TableCell>
+                  <TableCell>Total enrolled subjects</TableCell>
                 </TableRow>
                 <TableRow>
                   <TableCell className="font-mono text-xs">{"{{screened}}"}</TableCell>
-                  <TableCell>Total number of screened subjects</TableCell>
+                  <TableCell>Total screened subjects</TableCell>
                 </TableRow>
                 <TableRow>
-                  <TableCell className="font-mono text-xs">{"{{aes}}"}</TableCell>
-                  <TableCell>Recent Adverse Events summary</TableCell>
+                  <TableCell className="font-mono text-xs">{"{{screen_failures}}"}</TableCell>
+                  <TableCell>Total screen failures</TableCell>
                 </TableRow>
                 <TableRow>
-                  <TableCell className="font-mono text-xs">{"{{deviations}}"}</TableCell>
-                  <TableCell>Recent Protocol Deviations summary</TableCell>
+                  <TableCell className="font-mono text-xs">{"{{withdrawals}}"}</TableCell>
+                  <TableCell>Total withdrawals</TableCell>
                 </TableRow>
                 <TableRow>
-                  <TableCell className="font-mono text-xs">{"{{regulatory_status}}"}</TableCell>
-                  <TableCell>Summary of expiring regulatory documents</TableCell>
+                  <TableCell className="font-mono text-xs">{"{{ae_count}}"}</TableCell>
+                  <TableCell>Total adverse events</TableCell>
+                </TableRow>
+                <TableRow>
+                  <TableCell className="font-mono text-xs">{"{{ae_grade3_plus}}"}</TableCell>
+                  <TableCell>Grade 3+ adverse events count</TableCell>
+                </TableRow>
+                <TableRow>
+                  <TableCell className="font-mono text-xs">{"{{deviation_count}}"}</TableCell>
+                  <TableCell>Total protocol deviations</TableCell>
+                </TableRow>
+                <TableRow>
+                  <TableCell className="font-mono text-xs">{"{{major_deviations}}"}</TableCell>
+                  <TableCell>Major protocol deviations count</TableCell>
+                </TableRow>
+                <TableRow>
+                  <TableCell className="font-mono text-xs">{"{{next_milestone}}"}</TableCell>
+                  <TableCell>Next upcoming regulatory milestone name</TableCell>
+                </TableRow>
+                <TableRow>
+                  <TableCell className="font-mono text-xs">{"{{next_milestone_date}}"}</TableCell>
+                  <TableCell>Next upcoming regulatory milestone date</TableCell>
+                </TableRow>
+                <TableRow>
+                  <TableCell className="font-mono text-xs">{"{{report_date}}"}</TableCell>
+                  <TableCell>Report generation date</TableCell>
                 </TableRow>
               </TableBody>
             </Table>
