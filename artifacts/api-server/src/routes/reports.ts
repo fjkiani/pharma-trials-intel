@@ -101,10 +101,15 @@ router.post("/reports/generate", async (req, res): Promise<void> => {
       stalenessWarning = `Enrollment sheet last updated ${hoursAgo} hour${hoursAgo !== 1 ? "s" : ""} ago — data may be stale.`;
     }
   } catch (err) {
-    logger.warn({ err }, "Could not check sheet freshness — continuing without staleness check");
+    const errMsg = err instanceof Error ? err.message : String(err);
+    logger.error({ err }, "Failed to check sheet freshness");
+    res.status(503).json({
+      error: `Failed to check enrollment sheet freshness: ${errMsg}. Check Google Sheets ID and Drive connection in Settings.`,
+    });
+    return;
   }
 
-  let enrollment = { enrolled: 0, screened: 0, screenFailures: 0, withdrawals: 0 };
+  let enrollment: { enrolled: number; screened: number; screenFailures: number; withdrawals: number };
   try {
     enrollment = await readEnrollmentData(
       googleSheetsId,
@@ -112,7 +117,12 @@ router.post("/reports/generate", async (req, res): Promise<void> => {
       settings.googleSheetHeaderRow ?? 1,
     );
   } catch (err) {
-    logger.warn({ err }, "Could not read enrollment data — using zeros");
+    const errMsg = err instanceof Error ? err.message : String(err);
+    logger.error({ err }, "Failed to read enrollment data from Google Sheets");
+    res.status(503).json({
+      error: `Failed to read enrollment data from Google Sheets: ${errMsg}. Check sheet tab name and header row in Settings.`,
+    });
+    return;
   }
 
   const notionClient = await getNotionClient();
@@ -368,14 +378,28 @@ router.post("/reports/:reportId/discard", async (req, res): Promise<void> => {
     const { deleteDoc } = await import("../lib/googleDocs.js");
     await deleteDoc(report.docId);
   } catch (err) {
-    logger.warn({ err }, "Could not delete Google Doc during discard — marking discarded anyway");
+    const errMsg = err instanceof Error ? err.message : String(err);
+    logger.error({ err }, "Failed to delete Google Doc during discard");
+    res.status(503).json({
+      error: `Failed to delete the report document from Google Drive: ${errMsg}. Check Drive permissions and try again.`,
+    });
+    return;
   }
 
   const updated = await updateReport(reportId, { status: "Discarded" });
   res.json(DiscardReportResponse.parse(updated));
 });
 
-router.post("/internal/nag-check", async (_req, res): Promise<void> => {
+router.post("/internal/nag-check", async (req, res): Promise<void> => {
+  const nagSecret = process.env.NAG_SECRET;
+  if (nagSecret) {
+    const provided = req.headers["x-nag-secret"];
+    if (provided !== nagSecret) {
+      res.status(401).json({ error: "Unauthorized — missing or invalid X-Nag-Secret header." });
+      return;
+    }
+  }
+
   const settings = await getSettings();
   const nagIntervalHours = settings.nagIntervalHours ?? 4;
 
