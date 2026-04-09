@@ -1,6 +1,5 @@
-import { ReplitConnectors } from "@replit/connectors-sdk";
-
-const connectors = new ReplitConnectors();
+import { google } from "googleapis";
+import { getGoogleOAuth2Client } from "./googleOAuthClient.js";
 
 function encodeRfc2822(to: string, subject: string, body: string): string {
   const lines = [
@@ -24,16 +23,13 @@ export async function sendEmail(opts: {
   subject: string;
   htmlBody: string;
 }): Promise<void> {
+  const auth = await getGoogleOAuth2Client("google-mail");
+  const gmail = google.gmail({ version: "v1", auth });
+
   const raw = encodeRfc2822(opts.to, opts.subject, opts.htmlBody);
 
-  const res = (await connectors.proxy("google-mail", "/gmail/v1/users/me/messages/send", {
-    method: "POST",
-    body: JSON.stringify({ raw }),
-    headers: { "Content-Type": "application/json" },
-  })) as unknown as Response;
-
-  if (!res.ok) {
-    const text = await res.text();
-    throw new Error(`Gmail send failed (${res.status}): ${text}`);
-  }
+  await gmail.users.messages.send({
+    userId: "me",
+    requestBody: { raw },
+  });
 }
