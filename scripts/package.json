@@ -6,6 +6,7 @@
   "scripts": {
     "hello": "tsx ./src/hello.ts",
     "seed": "tsx ./src/seed-demo.ts",
+    "nag": "tsx ./src/nag-runner.ts",
     "typecheck": "tsc -p tsconfig.json --noEmit"
   },
   "dependencies": {
