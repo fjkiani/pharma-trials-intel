@@ -6,6 +6,9 @@ import {
   deleteFile as driveDeleteFile,
 } from "./googleDriveClient.js";
 
+// Google Docs shares OAuth credentials with the Drive connector — same Google account.
+const DOCS_CONNECTOR = "google-drive";
+
 export interface PlaceholderReplacement {
   placeholder: string;
   value: string;
@@ -19,7 +22,7 @@ export async function fillPlaceholders(
   docId: string,
   replacements: PlaceholderReplacement[],
 ): Promise<void> {
-  const auth = await getGoogleOAuth2Client("google-docs");
+  const auth = await getGoogleOAuth2Client(DOCS_CONNECTOR);
   const docs = google.docs({ version: "v1", auth });
 
   const requests = replacements.map((r) => ({
@@ -29,10 +32,14 @@ export async function fillPlaceholders(
     },
   }));
 
-  await docs.documents.batchUpdate({
+  const res = await docs.documents.batchUpdate({
     documentId: docId,
     requestBody: { requests },
   });
+
+  if (res.status !== 200) {
+    throw new Error(`Docs batchUpdate returned status ${res.status}`);
+  }
 }
 
 function extractTextFromStructuralElements(
@@ -52,22 +59,19 @@ function extractTextFromStructuralElements(
       }
     } else if (el.tableOfContents) {
       text += extractTextFromStructuralElements(el.tableOfContents.content ?? []);
-    } else if (el.sectionBreak) {
-      // no text content
     }
   }
   return text;
 }
 
 export async function scanForUnreplacedPlaceholders(docId: string): Promise<string[]> {
-  const auth = await getGoogleOAuth2Client("google-docs");
+  const auth = await getGoogleOAuth2Client(DOCS_CONNECTOR);
   const docs = google.docs({ version: "v1", auth });
 
   const doc = await docs.documents.get({ documentId: docId });
   const bodyContent = doc.data.body?.content ?? [];
 
   const text = extractTextFromStructuralElements(bodyContent);
-
   const matches = text.match(/\{\{[^}]+\}\}/g) ?? [];
   return [...new Set(matches)];
 }

@@ -69,18 +69,51 @@ export async function deleteFile(fileId: string): Promise<void> {
   }
 }
 
+/**
+ * Exports a Google Sheet as CSV via the Drive API and parses it into rows.
+ * Uses the Drive export endpoint (/drive/v3/files/{id}/export) which is covered
+ * by the google-drive connector scope.  For a specific tab, pass its numeric gid
+ * (0 = first sheet, the default "Sheet1").
+ */
 export async function getSheetValues(
   spreadsheetId: string,
-  range: string,
+  _range: string,
 ): Promise<string[][]> {
-  const encodedRange = encodeURIComponent(range);
   const res = await driveProxy(
-    `/sheets/v4/spreadsheets/${spreadsheetId}/values/${encodedRange}`,
+    `/drive/v3/files/${spreadsheetId}/export`,
+    { params: { mimeType: "text/csv" } },
   );
   if (!res.ok) {
     const text = await (res as Response).text();
-    throw new Error(`Sheets values.get failed (${res.status}): ${text}`);
+    throw new Error(`Sheets export failed (${res.status}): ${text.slice(0, 300)}`);
   }
-  const data = (await (res as Response).json()) as { values?: string[][] };
-  return data.values ?? [];
+  const csv = await (res as Response).text();
+  return parseCSV(csv);
+}
+
+function parseCSV(csv: string): string[][] {
+  const rows: string[][] = [];
+  for (const line of csv.split("\n")) {
+    const trimmed = line.trimEnd();
+    if (!trimmed) continue;
+    // Basic CSV parse — handles quoted fields with commas
+    const cols: string[] = [];
+    let current = "";
+    let inQuotes = false;
+    for (let i = 0; i < trimmed.length; i++) {
+      const ch = trimmed[i];
+      if (ch === '"') {
+        if (inQuotes && trimmed[i + 1] === '"') { current += '"'; i++; }
+        else { inQuotes = !inQuotes; }
+      } else if (ch === "," && !inQuotes) {
+        cols.push(current);
+        current = "";
+      } else {
+        current += ch;
+      }
+    }
+    cols.push(current);
+    rows.push(cols);
+  }
+  return rows;
 }

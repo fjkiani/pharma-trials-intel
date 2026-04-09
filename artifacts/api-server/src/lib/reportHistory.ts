@@ -1,7 +1,32 @@
 import Database from "@replit/database";
 import { randomUUID } from "crypto";
 
+// @replit/database v3 wraps all results in {ok, value} / {ok, error}
+// This helper unwraps that and throws on error.
 const db = new Database();
+
+type DbResult<T> = { ok: true; value: T } | { ok: false; error: unknown };
+
+function unwrap<T>(result: DbResult<T>, label: string): T {
+  if (!result.ok) throw new Error(`DB error (${label}): ${JSON.stringify((result as { ok: false; error: unknown }).error)}`);
+  return (result as { ok: true; value: T }).value;
+}
+
+async function dbGet<T>(key: string): Promise<T | null> {
+  const result = await (db as unknown as { get(k: string): Promise<DbResult<T | null>> }).get(key);
+  const val = unwrap(result, `get:${key}`);
+  return val;
+}
+
+async function dbSet(key: string, value: unknown): Promise<void> {
+  const result = await (db as unknown as { set(k: string, v: unknown): Promise<DbResult<void>> }).set(key, value);
+  unwrap(result, `set:${key}`);
+}
+
+async function dbList(prefix: string): Promise<string[]> {
+  const result = await (db as unknown as { list(p: string): Promise<DbResult<string[]>> }).list(prefix);
+  return unwrap(result, `list:${prefix}`) ?? [];
+}
 
 export type ReportStatus = "Draft" | "PI Review" | "Approved" | "Sent" | "Discarded";
 
@@ -40,22 +65,20 @@ export async function createReport(
     unreplacedPlaceholders: data.unreplacedPlaceholders,
   };
 
-  await db.set(reportKey(record.id), record);
+  await dbSet(reportKey(record.id), record);
 
-  const existing = await db.get(REPORTS_INDEX_KEY);
-  const ids: string[] = Array.isArray(existing) ? (existing as string[]) : [];
+  const existing = await dbGet<string[]>(REPORTS_INDEX_KEY);
+  const ids: string[] = Array.isArray(existing) ? existing : [];
   if (!ids.includes(record.id)) {
     ids.push(record.id);
-    await db.set(REPORTS_INDEX_KEY, ids);
+    await dbSet(REPORTS_INDEX_KEY, ids);
   }
 
   return record;
 }
 
 export async function getReport(id: string): Promise<SponsorReportRecord | null> {
-  const raw = await db.get(reportKey(id));
-  if (!raw) return null;
-  return raw as unknown as SponsorReportRecord;
+  return dbGet<SponsorReportRecord>(reportKey(id));
 }
 
 export async function updateReport(
@@ -65,17 +88,15 @@ export async function updateReport(
   const existing = await getReport(id);
   if (!existing) return null;
   const updated: SponsorReportRecord = { ...existing, ...patch, id: existing.id };
-  await db.set(reportKey(id), updated);
+  await dbSet(reportKey(id), updated);
   return updated;
 }
 
 export async function listReports(): Promise<SponsorReportRecord[]> {
-  const indexData = await db.get(REPORTS_INDEX_KEY);
-  if (!indexData || !Array.isArray(indexData)) return [];
+  const ids = await dbGet<string[]>(REPORTS_INDEX_KEY);
+  if (!ids || !Array.isArray(ids)) return [];
 
-  const ids = indexData as string[];
   const records: SponsorReportRecord[] = [];
-
   for (const id of ids) {
     const rec = await getReport(id);
     if (rec) records.push(rec);

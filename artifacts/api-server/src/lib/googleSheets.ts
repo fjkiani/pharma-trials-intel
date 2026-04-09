@@ -42,7 +42,7 @@ export async function readEnrollmentData(
   tabName: string,
   headerRow: number,
 ): Promise<EnrollmentData> {
-  const range = `'${tabName}'!A:B`;
+  const range = `${tabName}!A:B`;
   const rows = await getSheetValues(sheetId, range);
 
   // headerRow is 1-based: slice(headerRow) skips rows 0..(headerRow-1),

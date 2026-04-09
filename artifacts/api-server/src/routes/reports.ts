@@ -129,6 +129,8 @@ async function performGenerate(acknowledgeStale: boolean): Promise<GenerateOutco
   let devSummary = { totalDeviations: 0, majorDeviations: 0 };
   let milestone = { nextMilestoneName: "N/A", nextMilestoneDate: "N/A" };
 
+  let notionWarning: string | null = null;
+
   if (notionClient) {
     try {
       [aeSummary, devSummary, milestone] = await Promise.all([
@@ -138,10 +140,11 @@ async function performGenerate(acknowledgeStale: boolean): Promise<GenerateOutco
       ]);
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
-      throw new ApiError(
-        503,
-        `Failed to read clinical data from Notion: ${msg}. Check Notion database IDs and connection in Settings.`,
-      );
+      // Notion is a soft dependency — report generates with zeros; surface warning only.
+      notionWarning = msg.includes("shared with your integration")
+        ? "Notion databases are not yet shared with the Replit integration — AE/deviation counts defaulted to 0. Share each DB with the 'Replit' integration in Notion, then regenerate."
+        : `Notion data unavailable (${msg.slice(0, 150)}) — AE/deviation counts defaulted to 0.`;
+      logger.warn({ err }, "Notion read failed — using zero fallbacks for AE/deviation/milestone");
     }
   }
 
@@ -209,7 +212,10 @@ async function performGenerate(acknowledgeStale: boolean): Promise<GenerateOutco
   const docUrl = buildDocUrl(docId);
   const report = await createReport({ docUrl, docId, unreplacedPlaceholders });
 
-  return { requiresStaleAcknowledge: false, report, stalenessWarning };
+  // Merge staleness + notion warnings into a single warning string
+  const combinedWarning = [stalenessWarning, notionWarning].filter(Boolean).join(" | ") || null;
+
+  return { requiresStaleAcknowledge: false, report, stalenessWarning: combinedWarning };
 }
 
 // ─── Core send-to-PI logic (shared by /send-to-pi and /run-monthly) ──────────
