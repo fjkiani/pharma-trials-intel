@@ -15,6 +15,10 @@ export interface MilestoneSummary {
   nextMilestoneDate: string;
 }
 
+/**
+ * Fetches all pages from a Notion database (paginated).
+ * Throws on API errors so callers can distinguish empty DB from failures.
+ */
 async function fetchAllPages(
   client: NotionProxyClient,
   databaseId: string,
@@ -41,18 +45,19 @@ function getProps(page: Record<string, unknown>): Record<string, Record<string, 
   return (page.properties as Record<string, Record<string, unknown>>) ?? {};
 }
 
+/**
+ * Reads AE summary from Notion.
+ * - Returns zero counts for empty database (empty dbId or zero pages).
+ * - Throws if Notion API call fails so callers can surface the error.
+ */
 export async function readAeSummary(
   client: NotionProxyClient,
   aeDbId: string,
 ): Promise<AeSummary> {
   if (!aeDbId) return { totalAe: 0, grade3PlusAe: 0 };
 
-  let pages: Record<string, unknown>[];
-  try {
-    pages = await fetchAllPages(client, aeDbId);
-  } catch {
-    return { totalAe: 0, grade3PlusAe: 0 };
-  }
+  // May throw — callers decide how to handle (warn+zero vs hard error)
+  const pages = await fetchAllPages(client, aeDbId);
 
   let grade3Plus = 0;
   for (const page of pages) {
@@ -65,18 +70,18 @@ export async function readAeSummary(
   return { totalAe: pages.length, grade3PlusAe: grade3Plus };
 }
 
+/**
+ * Reads protocol deviation summary from Notion.
+ * - Returns zero counts for empty database.
+ * - Throws if Notion API call fails.
+ */
 export async function readDeviationSummary(
   client: NotionProxyClient,
   devDbId: string,
 ): Promise<DeviationSummary> {
   if (!devDbId) return { totalDeviations: 0, majorDeviations: 0 };
 
-  let pages: Record<string, unknown>[];
-  try {
-    pages = await fetchAllPages(client, devDbId);
-  } catch {
-    return { totalDeviations: 0, majorDeviations: 0 };
-  }
+  const pages = await fetchAllPages(client, devDbId);
 
   let major = 0;
   for (const page of pages) {
@@ -89,6 +94,11 @@ export async function readDeviationSummary(
   return { totalDeviations: pages.length, majorDeviations: major };
 }
 
+/**
+ * Reads the next upcoming regulatory milestone from Notion.
+ * - Returns "N/A" fallback for empty database or missing expiration dates.
+ * - Throws if Notion API call fails.
+ */
 export async function readNextMilestone(
   client: NotionProxyClient,
   regulatoryDbId: string,
@@ -96,12 +106,7 @@ export async function readNextMilestone(
   const fallback: MilestoneSummary = { nextMilestoneName: "N/A", nextMilestoneDate: "N/A" };
   if (!regulatoryDbId) return fallback;
 
-  let pages: Record<string, unknown>[];
-  try {
-    pages = await fetchAllPages(client, regulatoryDbId);
-  } catch {
-    return fallback;
-  }
+  const pages = await fetchAllPages(client, regulatoryDbId);
 
   interface MilestoneItem {
     name: string;

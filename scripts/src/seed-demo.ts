@@ -213,29 +213,20 @@ async function seedGoogleSheet(
     return;
   }
 
-  // ─── Staleness trigger via write+revert ──────────────────────────────────
-  // The staleness check reads Google Drive's modifiedTime for the sheet file.
-  // We write a dummy marker to a scratch cell, immediately revert it, so the
-  // modifiedTime of the file gets bumped to NOW — which also means that
-  // simply running the seed sets the clock at T=0.
-  // To actually SEE the staleness warning in the demo, do NOT touch the sheet
-  // for 26+ hours after seeding (the staleness threshold is 25 h).
+  // ─── Staleness demo note ─────────────────────────────────────────────────
+  // The staleness check compares Google Drive's modifiedTime to a configurable
+  // threshold (default 25 h). Google Drive's API does not allow backdating
+  // modifiedTime, so we cannot make the sheet appear old via code.
   //
-  // If you want to demo the warning immediately without waiting, open the
-  // sheet in Google Drive, edit any cell, save, then manually revert — or ask
-  // a tool like `gcloud` to backdate the modifiedTime.
-  const scratchRange = `'${tabName}'!Z1`;
-  const scratchMarker = "__seed_ts__";
-  try {
-    await sheetsApiPut(sheetId, scratchRange, [[scratchMarker]], accessToken);
-    // Immediately revert so the cell stays clean
-    await sheetsApiPut(sheetId, scratchRange, [[""]], accessToken);
-    console.log("  ✓ Staleness clock reset (sheet modifiedTime = now).");
-    console.log("     The staleness warning appears on /reports after 25+ hours without a sheet edit.");
-  } catch {
-    // Non-fatal — enrollment data is already written
-    console.log("  ℹ️  Could not reset staleness clock (scratch-cell write failed); enrollment data is still set.");
-  }
+  // To trigger the staleness warning immediately during a demo:
+  //   Set STALE_THRESHOLD_HOURS=0.01 in the API server environment variables
+  //   (in the Replit Secrets panel). This sets the threshold to ~36 seconds,
+  //   so any recently-edited sheet will trigger the warning.
+  //   Remove the variable (or set it back to 25) after the demo.
+  console.log("  ℹ️  Staleness demo tip:");
+  console.log("     Set env var STALE_THRESHOLD_HOURS=0.01 on the API server to trigger");
+  console.log("     the staleness warning immediately (threshold becomes ~36 seconds).");
+  console.log("     Remove it after the demo to restore the default 25-hour threshold.");
 }
 
 async function main() {

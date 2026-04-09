@@ -13,13 +13,30 @@ export interface SheetFreshnessResult {
   isStale: boolean;
 }
 
+/**
+ * Staleness threshold in hours.
+ * Override via STALE_THRESHOLD_HOURS env var for demo/testing
+ * (e.g. STALE_THRESHOLD_HOURS=0.01 triggers stale after ~36 seconds).
+ * Default: 25 hours.
+ */
+export function getStaleThresholdHours(): number {
+  const override = parseFloat(process.env.STALE_THRESHOLD_HOURS ?? "");
+  return Number.isFinite(override) && override > 0 ? override : 25;
+}
+
 export async function getSheetFreshness(sheetFileId: string): Promise<SheetFreshnessResult> {
   const lastModifiedAt = await getFileModifiedTime(sheetFileId);
   const ageMs = Date.now() - new Date(lastModifiedAt).getTime();
   const ageHours = ageMs / (1000 * 60 * 60);
-  return { lastModifiedAt, ageHours, isStale: ageHours > 24 };
+  const threshold = getStaleThresholdHours();
+  return { lastModifiedAt, ageHours, isStale: ageHours > threshold };
 }
 
+/**
+ * @param headerRow 1-based row number of the header row (matches the Settings field).
+ *   Rows above the header are skipped. Data rows start immediately after the header.
+ *   Default: 1 (header in row 1, data from row 2 onward).
+ */
 export async function readEnrollmentData(
   sheetId: string,
   tabName: string,
@@ -28,6 +45,8 @@ export async function readEnrollmentData(
   const range = `'${tabName}'!A:B`;
   const rows = await getSheetValues(sheetId, range);
 
+  // headerRow is 1-based: slice(headerRow) skips rows 0..(headerRow-1),
+  // i.e. the header row itself and any title rows above it.
   const dataRows = rows.slice(headerRow);
 
   const lookup: Record<string, number> = {};

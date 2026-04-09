@@ -109,7 +109,7 @@ router.post("/reports/generate", async (req, res): Promise<void> => {
     enrollment = await readEnrollmentData(
       googleSheetsId,
       settings.googleSheetTab || "Sheet1",
-      (settings.googleSheetHeaderRow ?? 1) - 1,
+      settings.googleSheetHeaderRow ?? 1,
     );
   } catch (err) {
     logger.warn({ err }, "Could not read enrollment data — using zeros");
@@ -125,11 +125,20 @@ router.post("/reports/generate", async (req, res): Promise<void> => {
   let milestone = { nextMilestoneName: "N/A", nextMilestoneDate: "N/A" };
 
   if (notionClient) {
-    [aeSummary, devSummary, milestone] = await Promise.all([
-      readAeSummary(notionClient, notionAeLogDbId ?? ""),
-      readDeviationSummary(notionClient, notionDeviationLogDbId ?? ""),
-      readNextMilestone(notionClient, notionRegulatoryDbId ?? ""),
-    ]);
+    try {
+      [aeSummary, devSummary, milestone] = await Promise.all([
+        readAeSummary(notionClient, notionAeLogDbId ?? ""),
+        readDeviationSummary(notionClient, notionDeviationLogDbId ?? ""),
+        readNextMilestone(notionClient, notionRegulatoryDbId ?? ""),
+      ]);
+    } catch (err) {
+      const errMsg = err instanceof Error ? err.message : String(err);
+      logger.error({ err }, "Failed to read Notion data for report generation");
+      res.status(503).json({
+        error: `Failed to read clinical data from Notion: ${errMsg}. Check Notion database IDs and connection in Settings.`,
+      });
+      return;
+    }
   }
 
   const reportDate = new Date().toLocaleDateString("en-US", {
