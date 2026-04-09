@@ -14,7 +14,10 @@ async function getAccessToken(): Promise<string> {
     connectionSettings.settings.expires_at &&
     new Date(connectionSettings.settings.expires_at).getTime() > Date.now()
   ) {
-    return connectionSettings.settings.access_token!;
+    const cachedToken =
+      connectionSettings.settings.access_token ||
+      connectionSettings.settings.oauth?.credentials?.access_token;
+    if (cachedToken) return cachedToken;
   }
 
   const hostname = process.env.REPLIT_CONNECTORS_HOSTNAME;

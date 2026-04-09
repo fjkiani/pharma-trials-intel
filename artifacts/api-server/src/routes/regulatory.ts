@@ -49,7 +49,14 @@ router.get("/regulatory/documents", async (req, res): Promise<void> => {
     return;
   }
 
-  const docs = await listRegulatoryDocuments(notionClient);
+  let docs: Awaited<ReturnType<typeof listRegulatoryDocuments>>;
+  try {
+    docs = await listRegulatoryDocuments(notionClient);
+  } catch (err) {
+    logger.error({ err }, "Notion query failed for documents");
+    res.status(502).json({ error: "Failed to fetch documents from Notion. Check permissions and database ID." });
+    return;
+  }
   res.json(ListRegulatoryDocumentsResponse.parse(docs));
 
   getCalendarClient().then((calendarClient) => {
@@ -94,7 +101,14 @@ router.get("/regulatory/summary", async (req, res): Promise<void> => {
     return;
   }
 
-  const docs = await listRegulatoryDocuments(notionClient);
+  let docs: Awaited<ReturnType<typeof listRegulatoryDocuments>>;
+  try {
+    docs = await listRegulatoryDocuments(notionClient);
+  } catch (err) {
+    logger.error({ err }, "Notion query failed for summary");
+    res.status(502).json({ error: "Failed to fetch documents from Notion. Check permissions and database ID." });
+    return;
+  }
   const summary = {
     total: docs.length,
     current: docs.filter((d) => d.status === "Current").length,
