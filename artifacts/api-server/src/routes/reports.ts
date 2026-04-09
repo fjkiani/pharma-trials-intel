@@ -78,6 +78,7 @@ router.post("/reports/generate", async (req, res): Promise<void> => {
     scanForUnreplacedPlaceholders,
     grantWriterAccess,
     buildDocUrl,
+    deleteDoc,
   } = await import("../lib/googleDocs.js");
 
   let stalenessWarning: string | null = null;
@@ -164,7 +165,13 @@ router.post("/reports/generate", async (req, res): Promise<void> => {
       { placeholder: "{{report_date}}", value: reportDate },
     ]);
   } catch (err) {
-    logger.error({ err }, "Failed to fill placeholders");
+    logger.error({ err }, "Failed to fill placeholders — deleting orphaned doc");
+    try { await deleteDoc(docId); } catch {}
+    const errMsg = err instanceof Error ? err.message : String(err);
+    res.status(503).json({
+      error: `Failed to fill report template placeholders: ${errMsg}. Check Google Docs connection and template ID.`,
+    });
+    return;
   }
 
   let unreplacedPlaceholders: string[] = [];
@@ -288,12 +295,20 @@ router.post("/reports/:reportId/mark-final", async (req, res): Promise<void> => 
   const settings = await getSettings();
 
   if (settings.sponsorCallEventId) {
+    const { getUncachableGoogleCalendarClient } = await import(
+      "../lib/googleCalendarClient.js"
+    );
+    let calendar: Awaited<ReturnType<typeof getUncachableGoogleCalendarClient>>;
     try {
-      const { getUncachableGoogleCalendarClient } = await import(
-        "../lib/googleCalendarClient.js"
-      );
-      const calendar = await getUncachableGoogleCalendarClient();
-      const calId = settings.googleCalendarId || "primary";
+      calendar = await getUncachableGoogleCalendarClient();
+    } catch (err) {
+      const errMsg = err instanceof Error ? err.message : String(err);
+      logger.error({ err }, "Could not connect to Google Calendar for mark-final");
+      res.status(503).json({ error: `Could not connect to Google Calendar: ${errMsg}` });
+      return;
+    }
+    const calId = settings.googleCalendarId || "primary";
+    try {
       const event = await calendar.events.get({
         calendarId: calId,
         eventId: settings.sponsorCallEventId,
@@ -309,7 +324,12 @@ router.post("/reports/:reportId/mark-final", async (req, res): Promise<void> => 
         requestBody: { description: appendedDesc },
       });
     } catch (err) {
-      logger.warn({ err }, "Could not update sponsor call calendar event");
+      const errMsg = err instanceof Error ? err.message : String(err);
+      logger.error({ err }, "Failed to update sponsor call calendar event");
+      res.status(503).json({
+        error: `Failed to update sponsor call calendar event: ${errMsg}. Check the Sponsor Call Event ID in Settings and Calendar permissions.`,
+      });
+      return;
     }
   }
 

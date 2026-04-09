@@ -154,6 +154,27 @@ async function getConnectorsToken(): Promise<string | null> {
   );
 }
 
+async function sheetsApiPut(
+  sheetId: string,
+  range: string,
+  values: string[][],
+  accessToken: string,
+): Promise<void> {
+  const encodedRange = encodeURIComponent(range);
+  const res = await fetch(
+    `https://sheets.googleapis.com/v4/spreadsheets/${sheetId}/values/${encodedRange}?valueInputOption=USER_ENTERED`,
+    {
+      method: "PUT",
+      headers: { Authorization: `Bearer ${accessToken}`, "Content-Type": "application/json" },
+      body: JSON.stringify({ range, majorDimension: "ROWS", values }),
+    },
+  );
+  if (!res.ok) {
+    const err = await res.text();
+    throw new Error(`Sheets PUT failed (${res.status}): ${err}`);
+  }
+}
+
 async function seedGoogleSheet(
   sheetId: string,
   tabName: string,
@@ -173,6 +194,8 @@ async function seedGoogleSheet(
     return;
   }
 
+  const startRow = headerRow;
+  const range = `'${tabName}'!A${startRow}:B${startRow + 4}`;
   const values = [
     ["Metric", "Value"],
     ["Enrolled", "42"],
@@ -181,35 +204,38 @@ async function seedGoogleSheet(
     ["Withdrawals", "7"],
   ];
 
-  const startRow = headerRow;
-  const range = encodeURIComponent(`'${tabName}'!A${startRow}:B${startRow + 4}`);
-
-  const writeRes = await fetch(
-    `https://sheets.googleapis.com/v4/spreadsheets/${sheetId}/values/${range}?valueInputOption=USER_ENTERED`,
-    {
-      method: "PUT",
-      headers: {
-        Authorization: `Bearer ${accessToken}`,
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify({ range: `'${tabName}'!A${startRow}:B${startRow + 4}`, majorDimension: "ROWS", values }),
-    },
-  );
-
-  if (!writeRes.ok) {
-    const err = await writeRes.text();
-    console.log(`  ⚠️  Sheet write failed (${writeRes.status}): ${err}`);
+  try {
+    await sheetsApiPut(sheetId, range, values, accessToken);
+    console.log("  ✓ Wrote enrollment rows: Enrolled=42, Screened=67, Screen Failures=18, Withdrawals=7");
+  } catch (err) {
+    console.log(`  ⚠️  Sheet write failed: ${err}`);
     console.log("     Populate manually with: Enrolled=42, Screened=67, Screen Failures=18, Withdrawals=7");
     return;
   }
 
-  console.log("  ✓ Wrote enrollment rows: Enrolled=42, Screened=67, Screen Failures=18, Withdrawals=7");
-
-  console.log("  ℹ️  To trigger the staleness warning in the demo:");
-  console.log("     Do NOT update the sheet for 26+ hours after seeding,");
-  console.log("     OR manually set the sheet's last-modified time by writing and reverting a dummy value.");
-  console.log("     Tip: the staleness check uses the Google Drive file modifiedTime,");
-  console.log("     so any edit resets the clock.");
+  // ─── Staleness trigger via write+revert ──────────────────────────────────
+  // The staleness check reads Google Drive's modifiedTime for the sheet file.
+  // We write a dummy marker to a scratch cell, immediately revert it, so the
+  // modifiedTime of the file gets bumped to NOW — which also means that
+  // simply running the seed sets the clock at T=0.
+  // To actually SEE the staleness warning in the demo, do NOT touch the sheet
+  // for 26+ hours after seeding (the staleness threshold is 25 h).
+  //
+  // If you want to demo the warning immediately without waiting, open the
+  // sheet in Google Drive, edit any cell, save, then manually revert — or ask
+  // a tool like `gcloud` to backdate the modifiedTime.
+  const scratchRange = `'${tabName}'!Z1`;
+  const scratchMarker = "__seed_ts__";
+  try {
+    await sheetsApiPut(sheetId, scratchRange, [[scratchMarker]], accessToken);
+    // Immediately revert so the cell stays clean
+    await sheetsApiPut(sheetId, scratchRange, [[""]], accessToken);
+    console.log("  ✓ Staleness clock reset (sheet modifiedTime = now).");
+    console.log("     The staleness warning appears on /reports after 25+ hours without a sheet edit.");
+  } catch {
+    // Non-fatal — enrollment data is already written
+    console.log("  ℹ️  Could not reset staleness clock (scratch-cell write failed); enrollment data is still set.");
+  }
 }
 
 async function main() {

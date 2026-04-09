@@ -197,8 +197,28 @@ export default function Settings() {
                     <FormItem>
                       <FormLabel>Sponsor Call Event ID</FormLabel>
                       <FormControl>
-                        <Input {...field} />
+                        <Input {...field} placeholder="e.g. abc123xyz_0" />
                       </FormControl>
+                      <FormDescription className="text-xs text-muted-foreground space-y-1">
+                        <span className="block">
+                          To find the Event ID: open the sponsor call in Google Calendar → click the three-dot menu → <strong>Edit event</strong>.
+                        </span>
+                        <span className="block">
+                          In the browser URL, look for the <code className="bg-muted px-1 rounded">eid=</code> parameter. The value is base64-encoded — paste it into{" "}
+                          <a
+                            href="https://www.base64decode.org/"
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="underline text-primary"
+                          >
+                            base64decode.org
+                          </a>{" "}
+                          to reveal the raw event ID (the part before the space or <code className="bg-muted px-1 rounded"> </code>).
+                        </span>
+                        <span className="block">
+                          Alternatively, open the event and click <strong>More options</strong>; the event ID appears in the URL after <code className="bg-muted px-1 rounded">/eventedit/</code>.
+                        </span>
+                      </FormDescription>
                       <FormMessage />
                     </FormItem>
                   )}
