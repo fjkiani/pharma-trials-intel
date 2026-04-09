@@ -415,47 +415,33 @@ router.post("/reports/:reportId/mark-final", async (req, res): Promise<void> => 
   }
 
   const settings = await getSettings();
+  let calendarWarning: string | null = null;
 
-  if (!settings.sponsorCallEventId) {
-    res.status(400).json({
-      error: "Sponsor Call Event ID is not configured. Set it in Settings before finalizing — the report link must be appended to the sponsor call calendar event.",
-    });
-    return;
-  }
-
-  const { getUncachableGoogleCalendarClient } = await import("../lib/googleCalendarClient.js");
-  let calendar: Awaited<ReturnType<typeof getUncachableGoogleCalendarClient>>;
-  try {
-    calendar = await getUncachableGoogleCalendarClient();
-  } catch (err) {
-    const msg = err instanceof Error ? err.message : String(err);
-    res.status(503).json({ error: `Could not connect to Google Calendar: ${msg}` });
-    return;
-  }
-
-  const calId = settings.googleCalendarId || "primary";
-  try {
-    const event = await calendar.events.get({ calendarId: calId, eventId: settings.sponsorCallEventId });
-    const existingDesc = event.data.description ?? "";
-    const appendedDesc =
-      existingDesc +
-      (existingDesc ? "\n\n" : "") +
-      `Sponsor Report (${new Date().toLocaleDateString("en-US")}): ${report.docUrl}`;
-    await calendar.events.patch({
-      calendarId: calId,
-      eventId: settings.sponsorCallEventId,
-      requestBody: { description: appendedDesc },
-    });
-  } catch (err) {
-    const msg = err instanceof Error ? err.message : String(err);
-    res.status(503).json({
-      error: `Failed to update sponsor call calendar event: ${msg}. Check the Sponsor Call Event ID in Settings and Calendar permissions.`,
-    });
-    return;
+  if (settings.sponsorCallEventId) {
+    try {
+      const { getUncachableGoogleCalendarClient } = await import("../lib/googleCalendarClient.js");
+      const calendar = await getUncachableGoogleCalendarClient();
+      const calId = settings.googleCalendarId || "primary";
+      const event = await calendar.events.get({ calendarId: calId, eventId: settings.sponsorCallEventId });
+      const existingDesc = event.data.description ?? "";
+      const appendedDesc =
+        existingDesc +
+        (existingDesc ? "\n\n" : "") +
+        `Sponsor Report (${new Date().toLocaleDateString("en-US")}): ${report.docUrl}`;
+      await calendar.events.patch({
+        calendarId: calId,
+        eventId: settings.sponsorCallEventId,
+        requestBody: { description: appendedDesc },
+      });
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      calendarWarning = `Report finalized, but the sponsor call calendar event could not be updated: ${msg.slice(0, 200)}. You can manually add the report link to your calendar event.`;
+      logger.warn({ err, reportId }, "Calendar patch failed during mark-final — proceeding to mark Sent anyway");
+    }
   }
 
   const updated = await updateReport(reportId, { status: "Sent", finalizedAt: new Date().toISOString() });
-  res.json(MarkReportFinalResponse.parse(updated));
+  res.json({ ...MarkReportFinalResponse.parse(updated), calendarWarning });
 });
 
 // POST /reports/:reportId/discard
@@ -464,20 +450,24 @@ router.post("/reports/:reportId/discard", async (req, res): Promise<void> => {
   const report = await getReport(reportId);
 
   if (!report) { res.status(404).json({ error: "Report not found" }); return; }
-  if (report.status !== "Draft") {
-    res.status(409).json({ error: `Report is in ${report.status} status — only Draft reports can be discarded.` });
+  if (report.status !== "Draft" && report.status !== "Approved") {
+    res.status(409).json({ error: `Report is in ${report.status} status — only Draft or Approved reports can be discarded.` });
     return;
   }
 
-  try {
-    const { deleteDoc } = await import("../lib/googleDocs.js");
-    await deleteDoc(report.docId);
-  } catch (err) {
-    const msg = err instanceof Error ? err.message : String(err);
-    res.status(503).json({
-      error: `Failed to delete the report document from Google Drive: ${msg}. Check Drive permissions and try again.`,
-    });
-    return;
+  // Only delete the Google Doc for Draft reports.
+  // Approved reports were already shared with the PI — deleting the doc would break their access.
+  if (report.status === "Draft") {
+    try {
+      const { deleteDoc } = await import("../lib/googleDocs.js");
+      await deleteDoc(report.docId);
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      res.status(503).json({
+        error: `Failed to delete the report document from Google Drive: ${msg}. Check Drive permissions and try again.`,
+      });
+      return;
+    }
   }
 
   const updated = await updateReport(reportId, { status: "Discarded" });
