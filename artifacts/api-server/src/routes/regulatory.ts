@@ -49,13 +49,12 @@ router.get("/regulatory/documents", async (req, res): Promise<void> => {
     return;
   }
 
-  let docs: Awaited<ReturnType<typeof listRegulatoryDocuments>>;
+  let docs: Awaited<ReturnType<typeof listRegulatoryDocuments>> = [];
   try {
     docs = await listRegulatoryDocuments(notionClient);
   } catch (err) {
-    logger.error({ err }, "Notion query failed for documents");
-    res.status(502).json({ error: "Failed to fetch documents from Notion. Check permissions and database ID." });
-    return;
+    logger.warn({ err }, "Notion query failed for documents — returning empty list");
+    // Soft failure: return empty list so the page still renders
   }
   res.json(ListRegulatoryDocumentsResponse.parse(docs));
 
@@ -101,13 +100,12 @@ router.get("/regulatory/summary", async (req, res): Promise<void> => {
     return;
   }
 
-  let docs: Awaited<ReturnType<typeof listRegulatoryDocuments>>;
+  let docs: Awaited<ReturnType<typeof listRegulatoryDocuments>> = [];
   try {
     docs = await listRegulatoryDocuments(notionClient);
   } catch (err) {
-    logger.error({ err }, "Notion query failed for summary");
-    res.status(502).json({ error: "Failed to fetch documents from Notion. Check permissions and database ID." });
-    return;
+    logger.warn({ err }, "Notion query failed for summary — returning zero counts");
+    // Soft failure: page still renders; user sees empty state not blocked page
   }
   const summary = {
     total: docs.length,
