@@ -21,8 +21,8 @@ export default function RegulatoryTimeline() {
   const { toast } = useToast();
   const queryClient = useQueryClient();
 
-  const { data: documents, isLoading: isLoadingDocs } = useListRegulatoryDocuments({
-    query: { enabled: true, queryKey: getListRegulatoryDocumentsQueryKey() }
+  const { data: documents, isLoading: isLoadingDocs, isError: isErrorDocs } = useListRegulatoryDocuments({
+    query: { enabled: true, queryKey: getListRegulatoryDocumentsQueryKey(), retry: false }
   });
 
   const { data: summary, isLoading: isLoadingSummary } = useGetRegulatorysummary({
@@ -65,7 +65,7 @@ export default function RegulatoryTimeline() {
 
   const isConfigured = summary?.notionsConnected;
 
-  if (isLoadingSummary || isLoadingDocs) {
+  if (isLoadingSummary || (isLoadingDocs && !isErrorDocs)) {
     return (
       <LayoutShell>
         <div className="space-y-6">

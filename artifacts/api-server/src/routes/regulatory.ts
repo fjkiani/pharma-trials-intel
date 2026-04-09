@@ -7,6 +7,7 @@ import {
 import { listRegulatoryDocuments } from "../lib/notion.js";
 import { syncCalendarReminders } from "../lib/googleCalendar.js";
 import { getSettings } from "../lib/settings.js";
+import { logger } from "../lib/logger.js";
 
 const router: IRouter = Router();
 
@@ -26,7 +27,7 @@ async function getCalendarClient() {
     const { getUncachableGoogleCalendarClient } = await import(
       "../lib/googleCalendarClient.js"
     );
-    return getUncachableGoogleCalendarClient();
+    return await getUncachableGoogleCalendarClient();
   } catch {
     return null;
   }
@@ -36,7 +37,9 @@ router.get("/regulatory/documents", async (req, res): Promise<void> => {
   const notionClient = await getNotionClient();
 
   if (!notionClient) {
-    res.json([]);
+    res.status(503).json({
+      error: "Notion integration not connected. Please connect Notion in Settings.",
+    });
     return;
   }
 
@@ -48,6 +51,17 @@ router.get("/regulatory/documents", async (req, res): Promise<void> => {
 
   const docs = await listRegulatoryDocuments(notionClient);
   res.json(ListRegulatoryDocumentsResponse.parse(docs));
+
+  getCalendarClient().then((calendarClient) => {
+    if (!calendarClient) return;
+    syncCalendarReminders(calendarClient, docs).then((result) => {
+      if (result.eventsCreated > 0) {
+        logger.info({ eventsCreated: result.eventsCreated }, "Auto-synced calendar reminders");
+      }
+    }).catch((err: unknown) => {
+      logger.warn({ err }, "Auto calendar sync failed");
+    });
+  }).catch(() => {});
 });
 
 router.get("/regulatory/summary", async (req, res): Promise<void> => {
@@ -99,14 +113,17 @@ router.post("/regulatory/sync-calendar", async (req, res): Promise<void> => {
   if (!calendarClient) {
     res.status(503).json({
       error:
-        "Google Calendar integration not connected. Please connect Google Calendar in your Replit integrations.",
+        "Google Calendar integration not connected. Please connect Google Calendar in Settings.",
     });
     return;
   }
 
   let docs: Awaited<ReturnType<typeof listRegulatoryDocuments>> = [];
   if (notionClient) {
-    docs = await listRegulatoryDocuments(notionClient);
+    const settings = await getSettings();
+    if (settings.notionRegulatoryDbId) {
+      docs = await listRegulatoryDocuments(notionClient);
+    }
   }
 
   const result = await syncCalendarReminders(calendarClient, docs);
