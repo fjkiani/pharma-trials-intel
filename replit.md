@@ -40,9 +40,11 @@ Clinical Trials Co-Pilot — a pnpm workspace monorepo for research coordinators
 
 ## Key Commands
 
-- `pnpm run typecheck` — full typecheck across all packages
-- `pnpm run build` — typecheck + build all packages
-- `pnpm --filter @workspace/api-spec run codegen` — regenerate API hooks and Zod schemas from OpenAPI spec
+- `pnpm --filter @workspace/api-spec run codegen` — regenerate API hooks and Zod schemas from `lib/api-spec/openapi.yaml`
+- `pnpm --filter @workspace/api-zod run build` — compile `lib/api-zod` declarations (required before api-server typecheck)
+- `pnpm --filter @workspace/api-client-react run build` — compile `lib/api-client-react` declarations (required before clinical-trials typecheck)
+- `pnpm --filter @workspace/api-server run typecheck` — typecheck API server
+- `pnpm --filter @workspace/clinical-trials run typecheck` — typecheck frontend
 - `pnpm --filter @workspace/api-server run dev` — run API server locally
 
 ## Notion Database Property Names (exact)

@@ -40,10 +40,10 @@ export default function RegulatoryTimeline() {
         });
         queryClient.invalidateQueries({ queryKey: getListRegulatoryDocumentsQueryKey() });
       },
-      onError: (error) => {
+      onError: (error: unknown) => {
         toast({
           title: "Sync Failed",
-          description: error.error || "Failed to sync with Google Calendar.",
+          description: error instanceof Error ? error.message : "Failed to sync with Google Calendar.",
           variant: "destructive",
         });
       }

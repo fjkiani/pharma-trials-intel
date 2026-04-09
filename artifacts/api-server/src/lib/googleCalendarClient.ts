@@ -39,8 +39,8 @@ async function getAccessToken(): Promise<string> {
       },
     },
   )
-    .then((res) => res.json())
-    .then((d) => d.items?.[0]);
+    .then((res) => res.json() as Promise<{ items?: typeof connectionSettings[] }>)
+    .then((d) => (d.items ?? [])[0] as typeof connectionSettings);
 
   connectionSettings = data;
 

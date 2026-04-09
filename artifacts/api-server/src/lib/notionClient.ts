@@ -21,7 +21,11 @@ export function getUncachableNotionClient(): NotionProxyClient {
           body: JSON.stringify({ page_size: 100, ...params }),
         },
       );
-      return response.json();
+      return response.json() as Promise<{
+        results: unknown[];
+        has_more: boolean;
+        next_cursor: string | null;
+      }>;
     },
   };
 }

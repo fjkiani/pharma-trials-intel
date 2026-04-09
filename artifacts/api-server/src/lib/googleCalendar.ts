@@ -13,6 +13,10 @@ function buildReminderDate(expirationDate: string): string {
   return reminder.toISOString().split("T")[0];
 }
 
+function makeEventKey(docId: string, expirationDate: string): string {
+  return `regulatory-renewal-${docId}-${expirationDate}`;
+}
+
 export async function syncCalendarReminders(
   calendarClient: {
     events: {
@@ -41,11 +45,11 @@ export async function syncCalendarReminders(
   for (const doc of expiringDocs) {
     try {
       const reminderDate = buildReminderDate(doc.expirationDate!);
-      const summaryText = `Renewal Reminder: ${doc.name}`;
+      const eventKey = makeEventKey(doc.id, doc.expirationDate!);
 
       const existing = await calendarClient.events.list({
         calendarId: settings.googleCalendarId,
-        q: summaryText,
+        privateExtendedProperty: `regulatoryEventKey=${eventKey}`,
         timeMin: new Date(reminderDate + "T00:00:00Z").toISOString(),
         timeMax: new Date(reminderDate + "T23:59:59Z").toISOString(),
         singleEvents: true,
@@ -60,10 +64,13 @@ export async function syncCalendarReminders(
       await calendarClient.events.insert({
         calendarId: settings.googleCalendarId,
         requestBody: {
-          summary: summaryText,
+          summary: `Renewal Reminder: ${doc.name}`,
           description: `Regulatory document "${doc.name}" expires on ${doc.expirationDate}. Review and renew before the deadline.${doc.fileLink ? `\n\nDocument: ${doc.fileLink}` : ""}`,
           start: { date: reminderDate },
           end: { date: reminderDate },
+          extendedProperties: {
+            private: { regulatoryEventKey: eventKey },
+          },
           reminders: {
             useDefault: false,
             overrides: [{ method: "email", minutes: 24 * 60 }],

@@ -14,17 +14,17 @@ import { useEffect } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 
 const settingsSchema = z.object({
-  notionRegulatoryDbId: z.string().min(1, "Required"),
-  googleCalendarId: z.string().min(1, "Required"),
-  notionAeLogDbId: z.string().min(1, "Required"),
-  notionDeviationLogDbId: z.string().min(1, "Required"),
-  googleSheetsId: z.string().min(1, "Required"),
-  googleSheetTab: z.string().min(1, "Required"),
+  notionRegulatoryDbId: z.string(),
+  googleCalendarId: z.string(),
+  notionAeLogDbId: z.string(),
+  notionDeviationLogDbId: z.string(),
+  googleSheetsId: z.string(),
+  googleSheetTab: z.string(),
   googleSheetHeaderRow: z.coerce.number().min(1, "Must be at least 1"),
-  googleDocsTemplateId: z.string().min(1, "Required"),
-  sponsorCallEventId: z.string().min(1, "Required"),
-  piEmail: z.string().email("Invalid email"),
-  sponsorEmail: z.string().email("Invalid email"),
+  googleDocsTemplateId: z.string(),
+  sponsorCallEventId: z.string(),
+  piEmail: z.string().refine((v) => v === "" || z.string().email().safeParse(v).success, { message: "Invalid email" }),
+  sponsorEmail: z.string().refine((v) => v === "" || z.string().email().safeParse(v).success, { message: "Invalid email" }),
   nagIntervalHours: z.coerce.number().min(1, "Must be at least 1"),
 });
 
@@ -86,10 +86,10 @@ export default function Settings() {
         });
         queryClient.invalidateQueries({ queryKey: getGetSettingsQueryKey() });
       },
-      onError: (error) => {
+      onError: (error: unknown) => {
         toast({
           title: "Error saving settings",
-          description: error.error || "An unexpected error occurred.",
+          description: error instanceof Error ? error.message : "An unexpected error occurred.",
           variant: "destructive",
         });
       }
