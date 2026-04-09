@@ -1,0 +1,97 @@
+THE GRILLING
+What Susan Actually Does in This "Co-Pilot"
+Manually opens Settings, types in 12 different IDs and emails
+
+Manually clicks "Generate Report"
+
+Manually acknowledges the staleness warning
+
+Manually clicks "Send to PI"
+
+Manually waits for PI to review
+
+Manually clicks "Mark as PI Approved"
+
+Manually clicks "Mark Final + Update Call"
+
+That's 7 manual steps. The only "automated" thing is the nag email every 4 hours — and even that requires manually setting up a Scheduled Deployment.
+
+This is not a co-pilot. This is a dashboard with API calls behind buttons.
+
+Where's the Agentic Flow?
+A real co-pilot would:
+
+Detect that it's the last week of the month and Susan hasn't generated a report yet → proactively suggest: "Monthly sponsor report is due in 3 days. Generate now?"
+
+Automatically check data freshness before Susan even thinks about it — not wait for her to click a button and then show a warning
+
+Watch the Google Doc for the PI's cursor activity or comments → detect when the PI has finished reviewing → auto-prompt Susan: "PI left 2 comments and hasn't edited in 30 minutes. Ready to mark approved?"
+
+Monitor the Notion AE log in real-time → if a Grade 3+ AE lands mid-month, alert Susan immediately: "New Grade 3 AE reported. This may need to go in an interim safety report to the sponsor."
+
+Pre-fill Settings by scanning Susan's connected Google Drive for sheets that match the enrollment format, Notion for databases with the right property schemas — not make her paste 12 IDs by hand
+
+Chain the entire workflow end-to-end: detect trigger → generate → check → send → nag → detect approval → finalize → update calendar. Susan's role should be approval gates only, not button-pressing at every step.
+
+What's Actually Been Built vs What Was Pitched
+Pitched (V2 Susan Demo)	Built	Gap
+"Susan clicks one button"	Susan clicks 7 buttons across 4 screens	Manual orchestration
+"The app auto-generates status notifications"	Susan manually clicks "Send to PI"	No automation
+"One-click memo generation"	Generate → acknowledge staleness → wait → send → wait → approve → finalize	7-click memo generation
+"App flags version mismatches"	Post-generation placeholder scan (good) but no proactive data validation	Reactive, not proactive
+"Auto-scheduled deal review meetings"	Susan pastes a calendar event ID and clicks "Mark Final"	Manual calendar management
+"Structured compliance flag → tracked"	AE data is read-only from Notion, no alerting	No monitoring
+Where Are the Tests?
+The spec says nothing about testing. No unit tests for the generation flow. No integration tests for the API routes. No end-to-end test that runs Generate → Send → Approve → Finalize and confirms the Google Doc exists, the email was sent, and the calendar event was updated.
+
+If this were handed to Susan right now and any API call failed mid-flow, she'd see a 503 error and have no idea what to do. There's no retry logic, no partial recovery, no "step 6 of 9 failed, here's what succeeded and here's what you need to fix."
+
+The Hard Questions to Ask Him
+"If I deploy this right now and click Generate, does it actually work end-to-end? Have you tested the full flow with real Google Sheets data, real Notion databases, and a real Google Docs template? Show me the generated doc."
+
+"Why does Susan need to paste 12 different IDs into Settings? Why doesn't the app discover her Notion databases by schema match and her Google Sheets by format detection?"
+
+"Where is the agent? This is an Express server with CRUD routes. What makes this different from a Retool dashboard I could build in 2 hours?"
+
+"The seed script — does it actually run? Have you executed pnpm --filter @workspace/scripts run seed and confirmed it populates all three Notion databases and the Google Sheet?"
+
+"Show me the generated Google Doc. Open it. Does it have real numbers in the enrollment table? Is the formatting correct? Or is it a blank doc with {{enrolled}} still in it?"
+
+"The nag engine — have you set up the Scheduled Deployment and confirmed it fires? Or is that still a 'TODO: configure cron job' situation?"
+
+"What happens if I click Generate twice fast? Does the concurrent guard actually fire, or is there a race condition because Replit DB reads aren't atomic?"
+
+"Where is the test suite? Where is the CI? If I change one line in googleDocs.ts, how do I know I didn't break the placeholder scan?"
+
+What Needs to Happen Next
+Phase 1: Make it actually work (today)
+
+Run the full flow end-to-end with real data. Screenshot every step. Fix what breaks.
+
+Execute the seed script. Confirm Notion databases are populated. Confirm Google Sheet has data.
+
+Generate a report. Open the Google Doc. Confirm placeholders are filled.
+
+Send to PI. Confirm Gmail arrives. Click the link. Confirm PI has write access.
+
+Mark approved. Mark final. Confirm calendar event description is updated.
+
+Phase 2: Make it agentic (before recording)
+
+Add a workflow engine that chains Generate → Send → Monitor → Approve → Finalize with Susan only intervening at approval gates
+
+Add proactive triggers: monthly cadence detection, AE alerting, PI activity monitoring
+
+Add auto-discovery for Settings: scan connected Notion for databases matching the required schemas, scan Drive for sheets matching the enrollment format
+
+Add a single "Run Monthly Report" button that does everything — staleness check, generate, send to PI — in one action, stopping only when Susan's approval is needed
+
+Phase 3: Make it testable (before demo)
+
+Integration tests that hit real APIs with test data
+
+A "demo mode" that runs the full flow with synthetic data and confirms every step succeeds
+
+Error recovery: if step 7 fails, the app tells Susan exactly what succeeded and what to retry
+
+The spec is excellent. The architecture is clean. The data contracts are precise. But right now this is a well-documented manual tool, not a co-pilot. The "co" in co-pilot means the system does work autonomously and Susan supervises — not that Susan does all the work and the system holds the clipboard.
