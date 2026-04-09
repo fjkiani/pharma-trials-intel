@@ -301,7 +301,12 @@ function ReportCard({
                   { reportId: report.id },
                   {
                     onSuccess: () => {
-                      toast({ title: "Report Discarded", description: "The draft has been deleted." });
+                      toast({
+                        title: "Report Discarded",
+                        description: report.status === "Draft"
+                          ? "The report draft and its Google Doc have been deleted."
+                          : "The report has been marked as discarded. The Google Doc remains accessible to the PI.",
+                      });
                       setConfirmDiscard(false);
                       onRefresh();
                     },
