@@ -8,3 +8,90 @@
 export interface HealthStatus {
   status: string;
 }
+
+/**
+ * Document status
+ */
+export type RegulatoryDocumentStatus =
+  (typeof RegulatoryDocumentStatus)[keyof typeof RegulatoryDocumentStatus];
+
+export const RegulatoryDocumentStatus = {
+  Current: "Current",
+  Expiring_Soon: "Expiring Soon",
+  Expired: "Expired",
+  Unknown: "Unknown",
+} as const;
+
+export interface RegulatoryDocument {
+  /** Notion page ID */
+  id: string;
+  /** Document name */
+  name: string;
+  /**
+   * Expiration/renewal date (ISO 8601)
+   * @nullable
+   */
+  expirationDate?: string | null;
+  /** Document status */
+  status: RegulatoryDocumentStatus;
+  /**
+   * Google Drive file URL
+   * @nullable
+   */
+  fileLink?: string | null;
+  /**
+   * Days until expiration (negative = already expired)
+   * @nullable
+   */
+  daysUntilExpiration?: number | null;
+  /** Whether a Google Calendar reminder event has been created */
+  calendarEventCreated: boolean;
+}
+
+export interface RegulatorySummary {
+  total: number;
+  current: number;
+  expiringSoon: number;
+  expired: number;
+  notionsConnected: boolean;
+}
+
+export interface CalendarSyncResult {
+  eventsCreated: number;
+  eventsSkipped: number;
+  errors: string[];
+}
+
+export interface AppSettings {
+  notionRegulatoryDbId: string;
+  googleCalendarId: string;
+  notionAeLogDbId: string;
+  notionDeviationLogDbId: string;
+  googleSheetsId: string;
+  googleSheetTab: string;
+  googleSheetHeaderRow: number;
+  googleDocsTemplateId: string;
+  sponsorCallEventId: string;
+  piEmail: string;
+  sponsorEmail: string;
+  nagIntervalHours: number;
+}
+
+export interface AppSettingsInput {
+  notionRegulatoryDbId?: string;
+  googleCalendarId?: string;
+  notionAeLogDbId?: string;
+  notionDeviationLogDbId?: string;
+  googleSheetsId?: string;
+  googleSheetTab?: string;
+  googleSheetHeaderRow?: number;
+  googleDocsTemplateId?: string;
+  sponsorCallEventId?: string;
+  piEmail?: string;
+  sponsorEmail?: string;
+  nagIntervalHours?: number;
+}
+
+export interface ErrorResponse {
+  error: string;
+}

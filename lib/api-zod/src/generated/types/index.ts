@@ -6,4 +6,11 @@
  * OpenAPI spec version: 0.1.0
  */
 
+export * from "./appSettings";
+export * from "./appSettingsInput";
+export * from "./calendarSyncResult";
+export * from "./errorResponse";
 export * from "./healthStatus";
+export * from "./regulatoryDocument";
+export * from "./regulatoryDocumentStatus";
+export * from "./regulatorySummary";

@@ -14,3 +14,105 @@ import * as zod from "zod";
 export const HealthCheckResponse = zod.object({
   status: zod.string(),
 });
+
+/**
+ * Returns all regulatory documents from Notion sorted by expiration date
+ * @summary List regulatory documents
+ */
+export const ListRegulatoryDocumentsResponseItem = zod.object({
+  id: zod.string().describe("Notion page ID"),
+  name: zod.string().describe("Document name"),
+  expirationDate: zod
+    .string()
+    .nullish()
+    .describe("Expiration\/renewal date (ISO 8601)"),
+  status: zod
+    .enum(["Current", "Expiring Soon", "Expired", "Unknown"])
+    .describe("Document status"),
+  fileLink: zod.string().nullish().describe("Google Drive file URL"),
+  daysUntilExpiration: zod
+    .number()
+    .nullish()
+    .describe("Days until expiration (negative = already expired)"),
+  calendarEventCreated: zod
+    .boolean()
+    .describe("Whether a Google Calendar reminder event has been created"),
+});
+export const ListRegulatoryDocumentsResponse = zod.array(
+  ListRegulatoryDocumentsResponseItem,
+);
+
+/**
+ * Returns counts by status for dashboard display
+ * @summary Regulatory document summary
+ */
+export const GetRegulatorysummaryResponse = zod.object({
+  total: zod.number(),
+  current: zod.number(),
+  expiringSoon: zod.number(),
+  expired: zod.number(),
+  notionsConnected: zod.boolean(),
+});
+
+/**
+ * Creates Google Calendar reminder events for documents expiring within 30 days
+ * @summary Sync calendar reminders
+ */
+export const SyncRegulatoryCalendarResponse = zod.object({
+  eventsCreated: zod.number(),
+  eventsSkipped: zod.number(),
+  errors: zod.array(zod.string()),
+});
+
+/**
+ * Returns current application configuration
+ * @summary Get application settings
+ */
+export const GetSettingsResponse = zod.object({
+  notionRegulatoryDbId: zod.string(),
+  googleCalendarId: zod.string(),
+  notionAeLogDbId: zod.string(),
+  notionDeviationLogDbId: zod.string(),
+  googleSheetsId: zod.string(),
+  googleSheetTab: zod.string(),
+  googleSheetHeaderRow: zod.number(),
+  googleDocsTemplateId: zod.string(),
+  sponsorCallEventId: zod.string(),
+  piEmail: zod.string(),
+  sponsorEmail: zod.string(),
+  nagIntervalHours: zod.number(),
+});
+
+/**
+ * Saves application configuration
+ * @summary Update application settings
+ */
+export const UpdateSettingsBody = zod.object({
+  notionRegulatoryDbId: zod.string().optional(),
+  googleCalendarId: zod.string().optional(),
+  notionAeLogDbId: zod.string().optional(),
+  notionDeviationLogDbId: zod.string().optional(),
+  googleSheetsId: zod.string().optional(),
+  googleSheetTab: zod.string().optional(),
+  googleSheetHeaderRow: zod.number().optional(),
+  googleDocsTemplateId: zod.string().optional(),
+  sponsorCallEventId: zod.string().optional(),
+  piEmail: zod.string().optional(),
+  sponsorEmail: zod.string().optional(),
+  nagIntervalHours: zod.number().optional(),
+});
+
+export const UpdateSettingsResponse = zod.object({
+  notionRegulatoryDbId: zod.string(),
+  googleCalendarId: zod.string(),
+  notionAeLogDbId: zod.string(),
+  notionDeviationLogDbId: zod.string(),
+  googleSheetsId: zod.string(),
+  googleSheetTab: zod.string(),
+  googleSheetHeaderRow: zod.number(),
+  googleDocsTemplateId: zod.string(),
+  sponsorCallEventId: zod.string(),
+  piEmail: zod.string(),
+  sponsorEmail: zod.string(),
+  nagIntervalHours: zod.number(),
+});

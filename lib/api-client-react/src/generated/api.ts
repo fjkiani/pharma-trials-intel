@@ -5,18 +5,29 @@
  * API specification
  * OpenAPI spec version: 0.1.0
  */
-import { useQuery } from "@tanstack/react-query";
+import { useMutation, useQuery } from "@tanstack/react-query";
 import type {
+  MutationFunction,
   QueryFunction,
   QueryKey,
+  UseMutationOptions,
+  UseMutationResult,
   UseQueryOptions,
   UseQueryResult,
 } from "@tanstack/react-query";
 
-import type { HealthStatus } from "./api.schemas";
+import type {
+  AppSettings,
+  AppSettingsInput,
+  CalendarSyncResult,
+  ErrorResponse,
+  HealthStatus,
+  RegulatoryDocument,
+  RegulatorySummary,
+} from "./api.schemas";
 
 import { customFetch } from "../custom-fetch";
-import type { ErrorType } from "../custom-fetch";
+import type { ErrorType, BodyType } from "../custom-fetch";
 
 type AwaitedInput<T> = PromiseLike<T> | T;
 
@@ -99,3 +110,401 @@ export function useHealthCheck<
 
   return { ...query, queryKey: queryOptions.queryKey };
 }
+
+/**
+ * Returns all regulatory documents from Notion sorted by expiration date
+ * @summary List regulatory documents
+ */
+export const getListRegulatoryDocumentsUrl = () => {
+  return `/api/regulatory/documents`;
+};
+
+export const listRegulatoryDocuments = async (
+  options?: RequestInit,
+): Promise<RegulatoryDocument[]> => {
+  return customFetch<RegulatoryDocument[]>(getListRegulatoryDocumentsUrl(), {
+    ...options,
+    method: "GET",
+  });
+};
+
+export const getListRegulatoryDocumentsQueryKey = () => {
+  return [`/api/regulatory/documents`] as const;
+};
+
+export const getListRegulatoryDocumentsQueryOptions = <
+  TData = Awaited<ReturnType<typeof listRegulatoryDocuments>>,
+  TError = ErrorType<ErrorResponse>,
+>(options?: {
+  query?: UseQueryOptions<
+    Awaited<ReturnType<typeof listRegulatoryDocuments>>,
+    TError,
+    TData
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}) => {
+  const { query: queryOptions, request: requestOptions } = options ?? {};
+
+  const queryKey =
+    queryOptions?.queryKey ?? getListRegulatoryDocumentsQueryKey();
+
+  const queryFn: QueryFunction<
+    Awaited<ReturnType<typeof listRegulatoryDocuments>>
+  > = ({ signal }) => listRegulatoryDocuments({ signal, ...requestOptions });
+
+  return { queryKey, queryFn, ...queryOptions } as UseQueryOptions<
+    Awaited<ReturnType<typeof listRegulatoryDocuments>>,
+    TError,
+    TData
+  > & { queryKey: QueryKey };
+};
+
+export type ListRegulatoryDocumentsQueryResult = NonNullable<
+  Awaited<ReturnType<typeof listRegulatoryDocuments>>
+>;
+export type ListRegulatoryDocumentsQueryError = ErrorType<ErrorResponse>;
+
+/**
+ * @summary List regulatory documents
+ */
+
+export function useListRegulatoryDocuments<
+  TData = Awaited<ReturnType<typeof listRegulatoryDocuments>>,
+  TError = ErrorType<ErrorResponse>,
+>(options?: {
+  query?: UseQueryOptions<
+    Awaited<ReturnType<typeof listRegulatoryDocuments>>,
+    TError,
+    TData
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+  const queryOptions = getListRegulatoryDocumentsQueryOptions(options);
+
+  const query = useQuery(queryOptions) as UseQueryResult<TData, TError> & {
+    queryKey: QueryKey;
+  };
+
+  return { ...query, queryKey: queryOptions.queryKey };
+}
+
+/**
+ * Returns counts by status for dashboard display
+ * @summary Regulatory document summary
+ */
+export const getGetRegulatorysummaryUrl = () => {
+  return `/api/regulatory/summary`;
+};
+
+export const getRegulatorysummary = async (
+  options?: RequestInit,
+): Promise<RegulatorySummary> => {
+  return customFetch<RegulatorySummary>(getGetRegulatorysummaryUrl(), {
+    ...options,
+    method: "GET",
+  });
+};
+
+export const getGetRegulatorysummaryQueryKey = () => {
+  return [`/api/regulatory/summary`] as const;
+};
+
+export const getGetRegulatorysummaryQueryOptions = <
+  TData = Awaited<ReturnType<typeof getRegulatorysummary>>,
+  TError = ErrorType<unknown>,
+>(options?: {
+  query?: UseQueryOptions<
+    Awaited<ReturnType<typeof getRegulatorysummary>>,
+    TError,
+    TData
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}) => {
+  const { query: queryOptions, request: requestOptions } = options ?? {};
+
+  const queryKey = queryOptions?.queryKey ?? getGetRegulatorysummaryQueryKey();
+
+  const queryFn: QueryFunction<
+    Awaited<ReturnType<typeof getRegulatorysummary>>
+  > = ({ signal }) => getRegulatorysummary({ signal, ...requestOptions });
+
+  return { queryKey, queryFn, ...queryOptions } as UseQueryOptions<
+    Awaited<ReturnType<typeof getRegulatorysummary>>,
+    TError,
+    TData
+  > & { queryKey: QueryKey };
+};
+
+export type GetRegulatorysummaryQueryResult = NonNullable<
+  Awaited<ReturnType<typeof getRegulatorysummary>>
+>;
+export type GetRegulatorysummaryQueryError = ErrorType<unknown>;
+
+/**
+ * @summary Regulatory document summary
+ */
+
+export function useGetRegulatorysummary<
+  TData = Awaited<ReturnType<typeof getRegulatorysummary>>,
+  TError = ErrorType<unknown>,
+>(options?: {
+  query?: UseQueryOptions<
+    Awaited<ReturnType<typeof getRegulatorysummary>>,
+    TError,
+    TData
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+  const queryOptions = getGetRegulatorysummaryQueryOptions(options);
+
+  const query = useQuery(queryOptions) as UseQueryResult<TData, TError> & {
+    queryKey: QueryKey;
+  };
+
+  return { ...query, queryKey: queryOptions.queryKey };
+}
+
+/**
+ * Creates Google Calendar reminder events for documents expiring within 30 days
+ * @summary Sync calendar reminders
+ */
+export const getSyncRegulatoryCalendarUrl = () => {
+  return `/api/regulatory/sync-calendar`;
+};
+
+export const syncRegulatoryCalendar = async (
+  options?: RequestInit,
+): Promise<CalendarSyncResult> => {
+  return customFetch<CalendarSyncResult>(getSyncRegulatoryCalendarUrl(), {
+    ...options,
+    method: "POST",
+  });
+};
+
+export const getSyncRegulatoryCalendarMutationOptions = <
+  TError = ErrorType<ErrorResponse>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof syncRegulatoryCalendar>>,
+    TError,
+    void,
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationOptions<
+  Awaited<ReturnType<typeof syncRegulatoryCalendar>>,
+  TError,
+  void,
+  TContext
+> => {
+  const mutationKey = ["syncRegulatoryCalendar"];
+  const { mutation: mutationOptions, request: requestOptions } = options
+    ? options.mutation &&
+      "mutationKey" in options.mutation &&
+      options.mutation.mutationKey
+      ? options
+      : { ...options, mutation: { ...options.mutation, mutationKey } }
+    : { mutation: { mutationKey }, request: undefined };
+
+  const mutationFn: MutationFunction<
+    Awaited<ReturnType<typeof syncRegulatoryCalendar>>,
+    void
+  > = () => {
+    return syncRegulatoryCalendar(requestOptions);
+  };
+
+  return { mutationFn, ...mutationOptions };
+};
+
+export type SyncRegulatoryCalendarMutationResult = NonNullable<
+  Awaited<ReturnType<typeof syncRegulatoryCalendar>>
+>;
+
+export type SyncRegulatoryCalendarMutationError = ErrorType<ErrorResponse>;
+
+/**
+ * @summary Sync calendar reminders
+ */
+export const useSyncRegulatoryCalendar = <
+  TError = ErrorType<ErrorResponse>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof syncRegulatoryCalendar>>,
+    TError,
+    void,
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationResult<
+  Awaited<ReturnType<typeof syncRegulatoryCalendar>>,
+  TError,
+  void,
+  TContext
+> => {
+  return useMutation(getSyncRegulatoryCalendarMutationOptions(options));
+};
+
+/**
+ * Returns current application configuration
+ * @summary Get application settings
+ */
+export const getGetSettingsUrl = () => {
+  return `/api/settings`;
+};
+
+export const getSettings = async (
+  options?: RequestInit,
+): Promise<AppSettings> => {
+  return customFetch<AppSettings>(getGetSettingsUrl(), {
+    ...options,
+    method: "GET",
+  });
+};
+
+export const getGetSettingsQueryKey = () => {
+  return [`/api/settings`] as const;
+};
+
+export const getGetSettingsQueryOptions = <
+  TData = Awaited<ReturnType<typeof getSettings>>,
+  TError = ErrorType<unknown>,
+>(options?: {
+  query?: UseQueryOptions<
+    Awaited<ReturnType<typeof getSettings>>,
+    TError,
+    TData
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}) => {
+  const { query: queryOptions, request: requestOptions } = options ?? {};
+
+  const queryKey = queryOptions?.queryKey ?? getGetSettingsQueryKey();
+
+  const queryFn: QueryFunction<Awaited<ReturnType<typeof getSettings>>> = ({
+    signal,
+  }) => getSettings({ signal, ...requestOptions });
+
+  return { queryKey, queryFn, ...queryOptions } as UseQueryOptions<
+    Awaited<ReturnType<typeof getSettings>>,
+    TError,
+    TData
+  > & { queryKey: QueryKey };
+};
+
+export type GetSettingsQueryResult = NonNullable<
+  Awaited<ReturnType<typeof getSettings>>
+>;
+export type GetSettingsQueryError = ErrorType<unknown>;
+
+/**
+ * @summary Get application settings
+ */
+
+export function useGetSettings<
+  TData = Awaited<ReturnType<typeof getSettings>>,
+  TError = ErrorType<unknown>,
+>(options?: {
+  query?: UseQueryOptions<
+    Awaited<ReturnType<typeof getSettings>>,
+    TError,
+    TData
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+  const queryOptions = getGetSettingsQueryOptions(options);
+
+  const query = useQuery(queryOptions) as UseQueryResult<TData, TError> & {
+    queryKey: QueryKey;
+  };
+
+  return { ...query, queryKey: queryOptions.queryKey };
+}
+
+/**
+ * Saves application configuration
+ * @summary Update application settings
+ */
+export const getUpdateSettingsUrl = () => {
+  return `/api/settings`;
+};
+
+export const updateSettings = async (
+  appSettingsInput: AppSettingsInput,
+  options?: RequestInit,
+): Promise<AppSettings> => {
+  return customFetch<AppSettings>(getUpdateSettingsUrl(), {
+    ...options,
+    method: "PUT",
+    headers: { "Content-Type": "application/json", ...options?.headers },
+    body: JSON.stringify(appSettingsInput),
+  });
+};
+
+export const getUpdateSettingsMutationOptions = <
+  TError = ErrorType<ErrorResponse>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof updateSettings>>,
+    TError,
+    { data: BodyType<AppSettingsInput> },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationOptions<
+  Awaited<ReturnType<typeof updateSettings>>,
+  TError,
+  { data: BodyType<AppSettingsInput> },
+  TContext
+> => {
+  const mutationKey = ["updateSettings"];
+  const { mutation: mutationOptions, request: requestOptions } = options
+    ? options.mutation &&
+      "mutationKey" in options.mutation &&
+      options.mutation.mutationKey
+      ? options
+      : { ...options, mutation: { ...options.mutation, mutationKey } }
+    : { mutation: { mutationKey }, request: undefined };
+
+  const mutationFn: MutationFunction<
+    Awaited<ReturnType<typeof updateSettings>>,
+    { data: BodyType<AppSettingsInput> }
+  > = (props) => {
+    const { data } = props ?? {};
+
+    return updateSettings(data, requestOptions);
+  };
+
+  return { mutationFn, ...mutationOptions };
+};
+
+export type UpdateSettingsMutationResult = NonNullable<
+  Awaited<ReturnType<typeof updateSettings>>
+>;
+export type UpdateSettingsMutationBody = BodyType<AppSettingsInput>;
+export type UpdateSettingsMutationError = ErrorType<ErrorResponse>;
+
+/**
+ * @summary Update application settings
+ */
+export const useUpdateSettings = <
+  TError = ErrorType<ErrorResponse>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof updateSettings>>,
+    TError,
+    { data: BodyType<AppSettingsInput> },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationResult<
+  Awaited<ReturnType<typeof updateSettings>>,
+  TError,
+  { data: BodyType<AppSettingsInput> },
+  TContext
+> => {
+  return useMutation(getUpdateSettingsMutationOptions(options));
+};

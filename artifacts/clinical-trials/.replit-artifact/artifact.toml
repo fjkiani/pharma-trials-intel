@@ -1,0 +1,31 @@
+kind = "web"
+previewPath = "/"
+title = "Clinical Trials Co-Pilot"
+version = "1.0.0"
+id = "artifacts/clinical-trials"
+router = "path"
+
+[[integratedSkills]]
+name = "react-vite"
+version = "1.0.0"
+
+[[services]]
+name = "web"
+paths = [ "/" ]
+localPort = 18918
+
+[services.development]
+run = "pnpm --filter @workspace/clinical-trials run dev"
+
+[services.production]
+build = [ "pnpm", "--filter", "@workspace/clinical-trials", "run", "build" ]
+publicDir = "artifacts/clinical-trials/dist/public"
+serve = "static"
+
+[[services.production.rewrites]]
+from = "/*"
+to = "/index.html"
+
+[services.env]
+PORT = "18918"
+BASE_PATH = "/"

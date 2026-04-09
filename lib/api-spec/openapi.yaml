@@ -10,6 +10,10 @@ servers:
 tags:
   - name: health
     description: Health operations
+  - name: regulatory
+    description: Regulatory document management
+  - name: settings
+    description: Application settings
 paths:
   /healthz:
     get:
@@ -24,6 +28,102 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/HealthStatus"
+
+  /regulatory/documents:
+    get:
+      operationId: listRegulatoryDocuments
+      tags: [regulatory]
+      summary: List regulatory documents
+      description: Returns all regulatory documents from Notion sorted by expiration date
+      responses:
+        "200":
+          description: List of regulatory documents
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/RegulatoryDocument"
+        "503":
+          description: Notion not connected
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
+  /regulatory/summary:
+    get:
+      operationId: getRegulatorysummary
+      tags: [regulatory]
+      summary: Regulatory document summary
+      description: Returns counts by status for dashboard display
+      responses:
+        "200":
+          description: Summary counts
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/RegulatorySummary"
+
+  /regulatory/sync-calendar:
+    post:
+      operationId: syncRegulatoryCalendar
+      tags: [regulatory]
+      summary: Sync calendar reminders
+      description: Creates Google Calendar reminder events for documents expiring within 30 days
+      responses:
+        "200":
+          description: Sync result
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CalendarSyncResult"
+        "503":
+          description: Google Calendar not connected
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
+  /settings:
+    get:
+      operationId: getSettings
+      tags: [settings]
+      summary: Get application settings
+      description: Returns current application configuration
+      responses:
+        "200":
+          description: Settings object
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AppSettings"
+
+    put:
+      operationId: updateSettings
+      tags: [settings]
+      summary: Update application settings
+      description: Saves application configuration
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/AppSettingsInput"
+      responses:
+        "200":
+          description: Updated settings
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AppSettings"
+        "400":
+          description: Invalid input
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
 components:
   schemas:
     HealthStatus:
@@ -34,3 +134,146 @@ components:
       required:
         - status
 
+    RegulatoryDocument:
+      type: object
+      properties:
+        id:
+          type: string
+          description: Notion page ID
+        name:
+          type: string
+          description: Document name
+        expirationDate:
+          type: ["string", "null"]
+          description: Expiration/renewal date (ISO 8601)
+        status:
+          type: string
+          enum: [Current, "Expiring Soon", Expired, Unknown]
+          description: Document status
+        fileLink:
+          type: ["string", "null"]
+          description: Google Drive file URL
+        daysUntilExpiration:
+          type: ["integer", "null"]
+          description: Days until expiration (negative = already expired)
+        calendarEventCreated:
+          type: boolean
+          description: Whether a Google Calendar reminder event has been created
+      required:
+        - id
+        - name
+        - status
+        - calendarEventCreated
+
+    RegulatorySummary:
+      type: object
+      properties:
+        total:
+          type: integer
+        current:
+          type: integer
+        expiringSoon:
+          type: integer
+        expired:
+          type: integer
+        notionsConnected:
+          type: boolean
+      required:
+        - total
+        - current
+        - expiringSoon
+        - expired
+        - notionsConnected
+
+    CalendarSyncResult:
+      type: object
+      properties:
+        eventsCreated:
+          type: integer
+        eventsSkipped:
+          type: integer
+        errors:
+          type: array
+          items:
+            type: string
+      required:
+        - eventsCreated
+        - eventsSkipped
+        - errors
+
+    AppSettings:
+      type: object
+      properties:
+        notionRegulatoryDbId:
+          type: string
+        googleCalendarId:
+          type: string
+        notionAeLogDbId:
+          type: string
+        notionDeviationLogDbId:
+          type: string
+        googleSheetsId:
+          type: string
+        googleSheetTab:
+          type: string
+        googleSheetHeaderRow:
+          type: integer
+        googleDocsTemplateId:
+          type: string
+        sponsorCallEventId:
+          type: string
+        piEmail:
+          type: string
+        sponsorEmail:
+          type: string
+        nagIntervalHours:
+          type: integer
+      required:
+        - notionRegulatoryDbId
+        - googleCalendarId
+        - notionAeLogDbId
+        - notionDeviationLogDbId
+        - googleSheetsId
+        - googleSheetTab
+        - googleSheetHeaderRow
+        - googleDocsTemplateId
+        - sponsorCallEventId
+        - piEmail
+        - sponsorEmail
+        - nagIntervalHours
+
+    AppSettingsInput:
+      type: object
+      properties:
+        notionRegulatoryDbId:
+          type: string
+        googleCalendarId:
+          type: string
+        notionAeLogDbId:
+          type: string
+        notionDeviationLogDbId:
+          type: string
+        googleSheetsId:
+          type: string
+        googleSheetTab:
+          type: string
+        googleSheetHeaderRow:
+          type: integer
+        googleDocsTemplateId:
+          type: string
+        sponsorCallEventId:
+          type: string
+        piEmail:
+          type: string
+        sponsorEmail:
+          type: string
+        nagIntervalHours:
+          type: integer
+
+    ErrorResponse:
+      type: object
+      properties:
+        error:
+          type: string
+      required:
+        - error

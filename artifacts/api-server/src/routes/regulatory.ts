@@ -1,0 +1,116 @@
+import { Router, type IRouter } from "express";
+import {
+  ListRegulatoryDocumentsResponse,
+  GetRegulatorysummaryResponse,
+  SyncRegulatoryCalendarResponse,
+} from "@workspace/api-zod";
+import { listRegulatoryDocuments } from "../lib/notion.js";
+import { syncCalendarReminders } from "../lib/googleCalendar.js";
+import { getSettings } from "../lib/settings.js";
+
+const router: IRouter = Router();
+
+async function getNotionClient() {
+  try {
+    const { getUncachableNotionClient } = await import(
+      "../lib/notionClient.js"
+    );
+    return getUncachableNotionClient();
+  } catch {
+    return null;
+  }
+}
+
+async function getCalendarClient() {
+  try {
+    const { getUncachableGoogleCalendarClient } = await import(
+      "../lib/googleCalendarClient.js"
+    );
+    return getUncachableGoogleCalendarClient();
+  } catch {
+    return null;
+  }
+}
+
+router.get("/regulatory/documents", async (req, res): Promise<void> => {
+  const notionClient = await getNotionClient();
+
+  if (!notionClient) {
+    res.json([]);
+    return;
+  }
+
+  const settings = await getSettings();
+  if (!settings.notionRegulatoryDbId) {
+    res.json([]);
+    return;
+  }
+
+  const docs = await listRegulatoryDocuments(notionClient);
+  res.json(ListRegulatoryDocumentsResponse.parse(docs));
+});
+
+router.get("/regulatory/summary", async (req, res): Promise<void> => {
+  const notionClient = await getNotionClient();
+
+  if (!notionClient) {
+    res.json(
+      GetRegulatorysummaryResponse.parse({
+        total: 0,
+        current: 0,
+        expiringSoon: 0,
+        expired: 0,
+        notionsConnected: false,
+      }),
+    );
+    return;
+  }
+
+  const settings = await getSettings();
+  if (!settings.notionRegulatoryDbId) {
+    res.json(
+      GetRegulatorysummaryResponse.parse({
+        total: 0,
+        current: 0,
+        expiringSoon: 0,
+        expired: 0,
+        notionsConnected: true,
+      }),
+    );
+    return;
+  }
+
+  const docs = await listRegulatoryDocuments(notionClient);
+  const summary = {
+    total: docs.length,
+    current: docs.filter((d) => d.status === "Current").length,
+    expiringSoon: docs.filter((d) => d.status === "Expiring Soon").length,
+    expired: docs.filter((d) => d.status === "Expired").length,
+    notionsConnected: true,
+  };
+
+  res.json(GetRegulatorysummaryResponse.parse(summary));
+});
+
+router.post("/regulatory/sync-calendar", async (req, res): Promise<void> => {
+  const notionClient = await getNotionClient();
+  const calendarClient = await getCalendarClient();
+
+  if (!calendarClient) {
+    res.status(503).json({
+      error:
+        "Google Calendar integration not connected. Please connect Google Calendar in your Replit integrations.",
+    });
+    return;
+  }
+
+  let docs: Awaited<ReturnType<typeof listRegulatoryDocuments>> = [];
+  if (notionClient) {
+    docs = await listRegulatoryDocuments(notionClient);
+  }
+
+  const result = await syncCalendarReminders(calendarClient, docs);
+  res.json(SyncRegulatoryCalendarResponse.parse(result));
+});
+
+export default router;
