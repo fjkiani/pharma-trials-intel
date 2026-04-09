@@ -313,6 +313,13 @@ router.post("/reports/:reportId/mark-final", async (req, res): Promise<void> => 
 
   const settings = await getSettings();
 
+  if (!settings.sponsorCallEventId) {
+    res.status(400).json({
+      error: "Sponsor Call Event ID is not configured. Set it in Settings before finalizing a report — the report link must be appended to the sponsor call calendar event.",
+    });
+    return;
+  }
+
   if (settings.sponsorCallEventId) {
     const { getUncachableGoogleCalendarClient } = await import(
       "../lib/googleCalendarClient.js"

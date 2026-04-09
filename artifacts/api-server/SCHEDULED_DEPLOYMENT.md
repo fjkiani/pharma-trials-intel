@@ -64,7 +64,12 @@ NAG_URL=http://localhost:8080/api/internal/nag-check \
 
 ## Security
 
-`/internal/nag-check` is **unauthenticated by default** (safe only behind Replit's network boundary).
-To enable auth:
-1. Set `NAG_SECRET` in Replit Secrets for **both** the API server and the Scheduled Deployment.
-2. The API server will then require `X-Nag-Secret: <value>` on every nag-check request.
+`/internal/nag-check` is **unauthenticated when `NAG_SECRET` is unset**.
+In production deployments where the API is publicly accessible, `NAG_SECRET` is **required**:
+
+1. Generate a random secret (e.g. `openssl rand -hex 32`).
+2. Set `NAG_SECRET=<secret>` in Replit Secrets for the **API server deployment**.
+3. Set `NAG_SECRET=<secret>` in Replit Secrets for the **Scheduled Deployment** job.
+4. The API server will then reject any request without `X-Nag-Secret: <secret>` with HTTP 401.
+
+Without `NAG_SECRET`, any caller can trigger the nag check and send repeated emails to the PI.
