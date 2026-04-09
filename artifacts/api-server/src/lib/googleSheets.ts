@@ -17,11 +17,11 @@ export interface SheetFreshnessResult {
  * Staleness threshold in hours.
  * Override via STALE_THRESHOLD_HOURS env var for demo/testing
  * (e.g. STALE_THRESHOLD_HOURS=0.01 triggers stale after ~36 seconds).
- * Default: 25 hours.
+ * Default: 24 hours (per US-2 requirement).
  */
 export function getStaleThresholdHours(): number {
   const override = parseFloat(process.env.STALE_THRESHOLD_HOURS ?? "");
-  return Number.isFinite(override) && override > 0 ? override : 25;
+  return Number.isFinite(override) && override > 0 ? override : 24;
 }
 
 export async function getSheetFreshness(sheetFileId: string): Promise<SheetFreshnessResult> {

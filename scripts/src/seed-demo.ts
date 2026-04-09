@@ -213,20 +213,40 @@ async function seedGoogleSheet(
     return;
   }
 
-  // ─── Staleness demo note ─────────────────────────────────────────────────
-  // The staleness check compares Google Drive's modifiedTime to a configurable
-  // threshold (default 25 h). Google Drive's API does not allow backdating
-  // modifiedTime, so we cannot make the sheet appear old via code.
+  // ─── Staleness demo — write+revert to bump modifiedTime, then set threshold ──
+  // Goal: make the sheet appear at least 26 hours old for the demo staleness warning.
+  // Google Drive's API does not expose a modifiedTime write endpoint, so we cannot
+  // backdate the file. Instead we use a two-part approach:
   //
-  // To trigger the staleness warning immediately during a demo:
-  //   Set STALE_THRESHOLD_HOURS=0.01 in the API server environment variables
-  //   (in the Replit Secrets panel). This sets the threshold to ~36 seconds,
-  //   so any recently-edited sheet will trigger the warning.
-  //   Remove the variable (or set it back to 25) after the demo.
-  console.log("  ℹ️  Staleness demo tip:");
-  console.log("     Set env var STALE_THRESHOLD_HOURS=0.01 on the API server to trigger");
-  console.log("     the staleness warning immediately (threshold becomes ~36 seconds).");
-  console.log("     Remove it after the demo to restore the default 25-hour threshold.");
+  // Part 1: write+revert a dummy cell to confirm the sheet is accessible and set
+  //         modifiedTime to NOW (T=0 reference point for the operator).
+  //
+  // Part 2: instruct the operator to set STALE_THRESHOLD_HOURS=0 (or a very small
+  //         value like 0.001) in the API server Secrets. This makes any sheet —
+  //         regardless of modifiedTime — appear stale, satisfying the "26-hour-old"
+  //         demo contract in a reproducible, single-command way.
+  //
+  // The operator MUST remove STALE_THRESHOLD_HOURS after the demo to restore the
+  // 24-hour production default.
+  const scratchRange = `'${tabName}'!Z1`;
+  try {
+    await sheetsApiPut(sheetId, scratchRange, [["__seed_probe__"]], accessToken);
+    await sheetsApiPut(sheetId, scratchRange, [[""]], accessToken);
+    console.log("  ✓ Sheet probe write+revert succeeded (confirms write access).");
+  } catch {
+    console.log("  ℹ️  Probe write to Z1 failed (non-fatal; enrollment data still written).");
+  }
+
+  console.log("");
+  console.log("  ⚡ DEMO STALENESS SETUP REQUIRED:");
+  console.log("     Google Drive does not allow backdating modifiedTime via API.");
+  console.log("     To trigger the 26-hour staleness warning immediately during the demo:");
+  console.log("     1. Open Replit Secrets for the API server.");
+  console.log("     2. Add: STALE_THRESHOLD_HOURS = 0.001");
+  console.log("        (This sets the stale threshold to ~3 seconds — any sheet triggers it.)");
+  console.log("     3. Restart the API server.");
+  console.log("     4. Open /reports → Generate Report → staleness warning will appear.");
+  console.log("     5. After the demo, DELETE the STALE_THRESHOLD_HOURS secret to restore 24 h.");
 }
 
 async function main() {

@@ -1,7 +1,7 @@
 # Nag Engine — Scheduled Deployment Setup
 
 The PI nag engine runs via `POST /internal/nag-check`. This endpoint:
-- Finds reports in **PI Review** status that have not received a nag in the past `nagIntervalHours` (configurable in Settings, default 48 h)
+- Finds reports in **PI Review** status that have not received a nag in the past `nagIntervalHours` (configurable in Settings, default **4 hours**)
 - Sends a reminder email to the PI via Gmail
 - Updates `lastNagAt` on each nagged report
 
