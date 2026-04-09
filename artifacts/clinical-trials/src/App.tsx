@@ -5,13 +5,15 @@ import { TooltipProvider } from "@/components/ui/tooltip";
 import NotFound from "@/pages/not-found";
 import RegulatoryTimeline from "@/pages/regulatory";
 import Settings from "@/pages/settings";
+import SponsorReports from "@/pages/reports";
 
 const queryClient = new QueryClient();
 
 function Router() {
   return (
     <Switch>
-      <Route path="/" component={() => <Redirect to="/regulatory" />} />
+      <Route path="/" component={() => <Redirect to="/reports" />} />
+      <Route path="/reports" component={SponsorReports} />
       <Route path="/regulatory" component={RegulatoryTimeline} />
       <Route path="/settings" component={Settings} />
       <Route component={NotFound} />

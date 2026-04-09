@@ -14,7 +14,7 @@ import {
   SidebarRail,
   SidebarFooter
 } from "@/components/ui/sidebar";
-import { Settings, FileText, CheckCircle2, AlertCircle } from "lucide-react";
+import { Settings, FileText, CheckCircle2, AlertCircle, ClipboardList } from "lucide-react";
 import { useGetSettings, getGetSettingsQueryKey } from "@workspace/api-client-react";
 
 export function LayoutShell({ children }: { children: React.ReactNode }) {
@@ -45,6 +45,14 @@ export function LayoutShell({ children }: { children: React.ReactNode }) {
               <SidebarGroupLabel>Workspace</SidebarGroupLabel>
               <SidebarGroupContent>
                 <SidebarMenu>
+                  <SidebarMenuItem>
+                    <SidebarMenuButton asChild isActive={location.startsWith("/reports")}>
+                      <Link href="/reports">
+                        <ClipboardList className="h-4 w-4" />
+                        <span>Sponsor Reports</span>
+                      </Link>
+                    </SidebarMenuButton>
+                  </SidebarMenuItem>
                   <SidebarMenuItem>
                     <SidebarMenuButton asChild isActive={location.startsWith("/regulatory")}>
                       <Link href="/regulatory">

@@ -116,3 +116,161 @@ export const UpdateSettingsResponse = zod.object({
   sponsorEmail: zod.string(),
   nagIntervalHours: zod.number(),
 });
+
+/**
+ * Returns all sponsor report records sorted by generation date (newest first)
+ * @summary List sponsor reports
+ */
+export const ListReportsResponseItem = zod.object({
+  id: zod.string().describe("UUID"),
+  docUrl: zod.string().describe("Google Docs URL"),
+  docId: zod.string().describe("Google Drive file ID"),
+  status: zod.enum(["Draft", "PI Review", "Approved", "Sent", "Discarded"]),
+  generatedAt: zod.string().describe("ISO 8601 timestamp"),
+  sentToPiAt: zod.string().nullish().describe("ISO 8601 timestamp"),
+  lastNagAt: zod.string().nullish().describe("ISO 8601 timestamp"),
+  approvedAt: zod.string().nullish().describe("ISO 8601 timestamp"),
+  finalizedAt: zod.string().nullish().describe("ISO 8601 timestamp"),
+  unreplacedPlaceholders: zod
+    .array(zod.string())
+    .describe("Any {{...}} placeholders not replaced during generation"),
+});
+export const ListReportsResponse = zod.array(ListReportsResponseItem);
+
+/**
+ * Fetches data from Sheets/Notion, copies the template Doc, fills placeholders, grants PI access. Returns staleness warning if sheet >24h old.
+ * @summary Generate sponsor report
+ */
+export const GenerateReportBody = zod.object({
+  acknowledgeStale: zod
+    .boolean()
+    .optional()
+    .describe("Set true to proceed despite stale enrollment data"),
+});
+
+export const GenerateReportResponse = zod.object({
+  report: zod
+    .object({
+      id: zod.string().describe("UUID"),
+      docUrl: zod.string().describe("Google Docs URL"),
+      docId: zod.string().describe("Google Drive file ID"),
+      status: zod.enum(["Draft", "PI Review", "Approved", "Sent", "Discarded"]),
+      generatedAt: zod.string().describe("ISO 8601 timestamp"),
+      sentToPiAt: zod.string().nullish().describe("ISO 8601 timestamp"),
+      lastNagAt: zod.string().nullish().describe("ISO 8601 timestamp"),
+      approvedAt: zod.string().nullish().describe("ISO 8601 timestamp"),
+      finalizedAt: zod.string().nullish().describe("ISO 8601 timestamp"),
+      unreplacedPlaceholders: zod
+        .array(zod.string())
+        .describe("Any {{...}} placeholders not replaced during generation"),
+    })
+    .optional(),
+  stalenessWarning: zod
+    .string()
+    .nullish()
+    .describe("Warning if sheet not updated in last 24h"),
+  requiresStaleAcknowledge: zod
+    .boolean()
+    .describe("If true, re-submit with acknowledgeStale=true to proceed"),
+});
+
+/**
+ * Sends Gmail to PI with doc link and advances status to PI Review
+ * @summary Send report to PI for review
+ */
+export const SendReportToPiParams = zod.object({
+  reportId: zod.coerce.string(),
+});
+
+export const SendReportToPiResponse = zod.object({
+  id: zod.string().describe("UUID"),
+  docUrl: zod.string().describe("Google Docs URL"),
+  docId: zod.string().describe("Google Drive file ID"),
+  status: zod.enum(["Draft", "PI Review", "Approved", "Sent", "Discarded"]),
+  generatedAt: zod.string().describe("ISO 8601 timestamp"),
+  sentToPiAt: zod.string().nullish().describe("ISO 8601 timestamp"),
+  lastNagAt: zod.string().nullish().describe("ISO 8601 timestamp"),
+  approvedAt: zod.string().nullish().describe("ISO 8601 timestamp"),
+  finalizedAt: zod.string().nullish().describe("ISO 8601 timestamp"),
+  unreplacedPlaceholders: zod
+    .array(zod.string())
+    .describe("Any {{...}} placeholders not replaced during generation"),
+});
+
+/**
+ * Manually advances report status from PI Review to Approved
+ * @summary Mark report as PI approved
+ */
+export const MarkReportApprovedParams = zod.object({
+  reportId: zod.coerce.string(),
+});
+
+export const MarkReportApprovedResponse = zod.object({
+  id: zod.string().describe("UUID"),
+  docUrl: zod.string().describe("Google Docs URL"),
+  docId: zod.string().describe("Google Drive file ID"),
+  status: zod.enum(["Draft", "PI Review", "Approved", "Sent", "Discarded"]),
+  generatedAt: zod.string().describe("ISO 8601 timestamp"),
+  sentToPiAt: zod.string().nullish().describe("ISO 8601 timestamp"),
+  lastNagAt: zod.string().nullish().describe("ISO 8601 timestamp"),
+  approvedAt: zod.string().nullish().describe("ISO 8601 timestamp"),
+  finalizedAt: zod.string().nullish().describe("ISO 8601 timestamp"),
+  unreplacedPlaceholders: zod
+    .array(zod.string())
+    .describe("Any {{...}} placeholders not replaced during generation"),
+});
+
+/**
+ * Appends report link to calendar event description and advances status to Sent
+ * @summary Mark report final and update sponsor call
+ */
+export const MarkReportFinalParams = zod.object({
+  reportId: zod.coerce.string(),
+});
+
+export const MarkReportFinalResponse = zod.object({
+  id: zod.string().describe("UUID"),
+  docUrl: zod.string().describe("Google Docs URL"),
+  docId: zod.string().describe("Google Drive file ID"),
+  status: zod.enum(["Draft", "PI Review", "Approved", "Sent", "Discarded"]),
+  generatedAt: zod.string().describe("ISO 8601 timestamp"),
+  sentToPiAt: zod.string().nullish().describe("ISO 8601 timestamp"),
+  lastNagAt: zod.string().nullish().describe("ISO 8601 timestamp"),
+  approvedAt: zod.string().nullish().describe("ISO 8601 timestamp"),
+  finalizedAt: zod.string().nullish().describe("ISO 8601 timestamp"),
+  unreplacedPlaceholders: zod
+    .array(zod.string())
+    .describe("Any {{...}} placeholders not replaced during generation"),
+});
+
+/**
+ * Deletes the orphaned Google Doc from Drive and marks report as Discarded
+ * @summary Discard draft report
+ */
+export const DiscardReportParams = zod.object({
+  reportId: zod.coerce.string(),
+});
+
+export const DiscardReportResponse = zod.object({
+  id: zod.string().describe("UUID"),
+  docUrl: zod.string().describe("Google Docs URL"),
+  docId: zod.string().describe("Google Drive file ID"),
+  status: zod.enum(["Draft", "PI Review", "Approved", "Sent", "Discarded"]),
+  generatedAt: zod.string().describe("ISO 8601 timestamp"),
+  sentToPiAt: zod.string().nullish().describe("ISO 8601 timestamp"),
+  lastNagAt: zod.string().nullish().describe("ISO 8601 timestamp"),
+  approvedAt: zod.string().nullish().describe("ISO 8601 timestamp"),
+  finalizedAt: zod.string().nullish().describe("ISO 8601 timestamp"),
+  unreplacedPlaceholders: zod
+    .array(zod.string())
+    .describe("Any {{...}} placeholders not replaced during generation"),
+});
+
+/**
+ * Called by Replit Scheduled Deployment every 4 hours. Sends follow-up Gmail to PI for any reports still in PI Review past the nag interval.
+ * @summary PI nag engine check
+ */
+export const NagCheckResponse = zod.object({
+  nagsSent: zod.number(),
+  errors: zod.array(zod.string()),
+});

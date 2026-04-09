@@ -21,9 +21,13 @@ import type {
   AppSettingsInput,
   CalendarSyncResult,
   ErrorResponse,
+  GenerateReportInput,
+  GenerateReportResponse,
   HealthStatus,
+  NagCheckResponse,
   RegulatoryDocument,
   RegulatorySummary,
+  SponsorReport,
 } from "./api.schemas";
 
 import { customFetch } from "../custom-fetch";
@@ -507,4 +511,589 @@ export const useUpdateSettings = <
   TContext
 > => {
   return useMutation(getUpdateSettingsMutationOptions(options));
+};
+
+/**
+ * Returns all sponsor report records sorted by generation date (newest first)
+ * @summary List sponsor reports
+ */
+export const getListReportsUrl = () => {
+  return `/api/reports`;
+};
+
+export const listReports = async (
+  options?: RequestInit,
+): Promise<SponsorReport[]> => {
+  return customFetch<SponsorReport[]>(getListReportsUrl(), {
+    ...options,
+    method: "GET",
+  });
+};
+
+export const getListReportsQueryKey = () => {
+  return [`/api/reports`] as const;
+};
+
+export const getListReportsQueryOptions = <
+  TData = Awaited<ReturnType<typeof listReports>>,
+  TError = ErrorType<unknown>,
+>(options?: {
+  query?: UseQueryOptions<
+    Awaited<ReturnType<typeof listReports>>,
+    TError,
+    TData
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}) => {
+  const { query: queryOptions, request: requestOptions } = options ?? {};
+
+  const queryKey = queryOptions?.queryKey ?? getListReportsQueryKey();
+
+  const queryFn: QueryFunction<Awaited<ReturnType<typeof listReports>>> = ({
+    signal,
+  }) => listReports({ signal, ...requestOptions });
+
+  return { queryKey, queryFn, ...queryOptions } as UseQueryOptions<
+    Awaited<ReturnType<typeof listReports>>,
+    TError,
+    TData
+  > & { queryKey: QueryKey };
+};
+
+export type ListReportsQueryResult = NonNullable<
+  Awaited<ReturnType<typeof listReports>>
+>;
+export type ListReportsQueryError = ErrorType<unknown>;
+
+/**
+ * @summary List sponsor reports
+ */
+
+export function useListReports<
+  TData = Awaited<ReturnType<typeof listReports>>,
+  TError = ErrorType<unknown>,
+>(options?: {
+  query?: UseQueryOptions<
+    Awaited<ReturnType<typeof listReports>>,
+    TError,
+    TData
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+  const queryOptions = getListReportsQueryOptions(options);
+
+  const query = useQuery(queryOptions) as UseQueryResult<TData, TError> & {
+    queryKey: QueryKey;
+  };
+
+  return { ...query, queryKey: queryOptions.queryKey };
+}
+
+/**
+ * Fetches data from Sheets/Notion, copies the template Doc, fills placeholders, grants PI access. Returns staleness warning if sheet >24h old.
+ * @summary Generate sponsor report
+ */
+export const getGenerateReportUrl = () => {
+  return `/api/reports/generate`;
+};
+
+export const generateReport = async (
+  generateReportInput: GenerateReportInput,
+  options?: RequestInit,
+): Promise<GenerateReportResponse> => {
+  return customFetch<GenerateReportResponse>(getGenerateReportUrl(), {
+    ...options,
+    method: "POST",
+    headers: { "Content-Type": "application/json", ...options?.headers },
+    body: JSON.stringify(generateReportInput),
+  });
+};
+
+export const getGenerateReportMutationOptions = <
+  TError = ErrorType<ErrorResponse>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof generateReport>>,
+    TError,
+    { data: BodyType<GenerateReportInput> },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationOptions<
+  Awaited<ReturnType<typeof generateReport>>,
+  TError,
+  { data: BodyType<GenerateReportInput> },
+  TContext
+> => {
+  const mutationKey = ["generateReport"];
+  const { mutation: mutationOptions, request: requestOptions } = options
+    ? options.mutation &&
+      "mutationKey" in options.mutation &&
+      options.mutation.mutationKey
+      ? options
+      : { ...options, mutation: { ...options.mutation, mutationKey } }
+    : { mutation: { mutationKey }, request: undefined };
+
+  const mutationFn: MutationFunction<
+    Awaited<ReturnType<typeof generateReport>>,
+    { data: BodyType<GenerateReportInput> }
+  > = (props) => {
+    const { data } = props ?? {};
+
+    return generateReport(data, requestOptions);
+  };
+
+  return { mutationFn, ...mutationOptions };
+};
+
+export type GenerateReportMutationResult = NonNullable<
+  Awaited<ReturnType<typeof generateReport>>
+>;
+export type GenerateReportMutationBody = BodyType<GenerateReportInput>;
+export type GenerateReportMutationError = ErrorType<ErrorResponse>;
+
+/**
+ * @summary Generate sponsor report
+ */
+export const useGenerateReport = <
+  TError = ErrorType<ErrorResponse>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof generateReport>>,
+    TError,
+    { data: BodyType<GenerateReportInput> },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationResult<
+  Awaited<ReturnType<typeof generateReport>>,
+  TError,
+  { data: BodyType<GenerateReportInput> },
+  TContext
+> => {
+  return useMutation(getGenerateReportMutationOptions(options));
+};
+
+/**
+ * Sends Gmail to PI with doc link and advances status to PI Review
+ * @summary Send report to PI for review
+ */
+export const getSendReportToPiUrl = (reportId: string) => {
+  return `/api/reports/${reportId}/send-to-pi`;
+};
+
+export const sendReportToPi = async (
+  reportId: string,
+  options?: RequestInit,
+): Promise<SponsorReport> => {
+  return customFetch<SponsorReport>(getSendReportToPiUrl(reportId), {
+    ...options,
+    method: "POST",
+  });
+};
+
+export const getSendReportToPiMutationOptions = <
+  TError = ErrorType<ErrorResponse>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof sendReportToPi>>,
+    TError,
+    { reportId: string },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationOptions<
+  Awaited<ReturnType<typeof sendReportToPi>>,
+  TError,
+  { reportId: string },
+  TContext
+> => {
+  const mutationKey = ["sendReportToPi"];
+  const { mutation: mutationOptions, request: requestOptions } = options
+    ? options.mutation &&
+      "mutationKey" in options.mutation &&
+      options.mutation.mutationKey
+      ? options
+      : { ...options, mutation: { ...options.mutation, mutationKey } }
+    : { mutation: { mutationKey }, request: undefined };
+
+  const mutationFn: MutationFunction<
+    Awaited<ReturnType<typeof sendReportToPi>>,
+    { reportId: string }
+  > = (props) => {
+    const { reportId } = props ?? {};
+
+    return sendReportToPi(reportId, requestOptions);
+  };
+
+  return { mutationFn, ...mutationOptions };
+};
+
+export type SendReportToPiMutationResult = NonNullable<
+  Awaited<ReturnType<typeof sendReportToPi>>
+>;
+
+export type SendReportToPiMutationError = ErrorType<ErrorResponse>;
+
+/**
+ * @summary Send report to PI for review
+ */
+export const useSendReportToPi = <
+  TError = ErrorType<ErrorResponse>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof sendReportToPi>>,
+    TError,
+    { reportId: string },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationResult<
+  Awaited<ReturnType<typeof sendReportToPi>>,
+  TError,
+  { reportId: string },
+  TContext
+> => {
+  return useMutation(getSendReportToPiMutationOptions(options));
+};
+
+/**
+ * Manually advances report status from PI Review to Approved
+ * @summary Mark report as PI approved
+ */
+export const getMarkReportApprovedUrl = (reportId: string) => {
+  return `/api/reports/${reportId}/mark-approved`;
+};
+
+export const markReportApproved = async (
+  reportId: string,
+  options?: RequestInit,
+): Promise<SponsorReport> => {
+  return customFetch<SponsorReport>(getMarkReportApprovedUrl(reportId), {
+    ...options,
+    method: "POST",
+  });
+};
+
+export const getMarkReportApprovedMutationOptions = <
+  TError = ErrorType<ErrorResponse>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof markReportApproved>>,
+    TError,
+    { reportId: string },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationOptions<
+  Awaited<ReturnType<typeof markReportApproved>>,
+  TError,
+  { reportId: string },
+  TContext
+> => {
+  const mutationKey = ["markReportApproved"];
+  const { mutation: mutationOptions, request: requestOptions } = options
+    ? options.mutation &&
+      "mutationKey" in options.mutation &&
+      options.mutation.mutationKey
+      ? options
+      : { ...options, mutation: { ...options.mutation, mutationKey } }
+    : { mutation: { mutationKey }, request: undefined };
+
+  const mutationFn: MutationFunction<
+    Awaited<ReturnType<typeof markReportApproved>>,
+    { reportId: string }
+  > = (props) => {
+    const { reportId } = props ?? {};
+
+    return markReportApproved(reportId, requestOptions);
+  };
+
+  return { mutationFn, ...mutationOptions };
+};
+
+export type MarkReportApprovedMutationResult = NonNullable<
+  Awaited<ReturnType<typeof markReportApproved>>
+>;
+
+export type MarkReportApprovedMutationError = ErrorType<ErrorResponse>;
+
+/**
+ * @summary Mark report as PI approved
+ */
+export const useMarkReportApproved = <
+  TError = ErrorType<ErrorResponse>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof markReportApproved>>,
+    TError,
+    { reportId: string },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationResult<
+  Awaited<ReturnType<typeof markReportApproved>>,
+  TError,
+  { reportId: string },
+  TContext
+> => {
+  return useMutation(getMarkReportApprovedMutationOptions(options));
+};
+
+/**
+ * Appends report link to calendar event description and advances status to Sent
+ * @summary Mark report final and update sponsor call
+ */
+export const getMarkReportFinalUrl = (reportId: string) => {
+  return `/api/reports/${reportId}/mark-final`;
+};
+
+export const markReportFinal = async (
+  reportId: string,
+  options?: RequestInit,
+): Promise<SponsorReport> => {
+  return customFetch<SponsorReport>(getMarkReportFinalUrl(reportId), {
+    ...options,
+    method: "POST",
+  });
+};
+
+export const getMarkReportFinalMutationOptions = <
+  TError = ErrorType<ErrorResponse>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof markReportFinal>>,
+    TError,
+    { reportId: string },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationOptions<
+  Awaited<ReturnType<typeof markReportFinal>>,
+  TError,
+  { reportId: string },
+  TContext
+> => {
+  const mutationKey = ["markReportFinal"];
+  const { mutation: mutationOptions, request: requestOptions } = options
+    ? options.mutation &&
+      "mutationKey" in options.mutation &&
+      options.mutation.mutationKey
+      ? options
+      : { ...options, mutation: { ...options.mutation, mutationKey } }
+    : { mutation: { mutationKey }, request: undefined };
+
+  const mutationFn: MutationFunction<
+    Awaited<ReturnType<typeof markReportFinal>>,
+    { reportId: string }
+  > = (props) => {
+    const { reportId } = props ?? {};
+
+    return markReportFinal(reportId, requestOptions);
+  };
+
+  return { mutationFn, ...mutationOptions };
+};
+
+export type MarkReportFinalMutationResult = NonNullable<
+  Awaited<ReturnType<typeof markReportFinal>>
+>;
+
+export type MarkReportFinalMutationError = ErrorType<ErrorResponse>;
+
+/**
+ * @summary Mark report final and update sponsor call
+ */
+export const useMarkReportFinal = <
+  TError = ErrorType<ErrorResponse>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof markReportFinal>>,
+    TError,
+    { reportId: string },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationResult<
+  Awaited<ReturnType<typeof markReportFinal>>,
+  TError,
+  { reportId: string },
+  TContext
+> => {
+  return useMutation(getMarkReportFinalMutationOptions(options));
+};
+
+/**
+ * Deletes the orphaned Google Doc from Drive and marks report as Discarded
+ * @summary Discard draft report
+ */
+export const getDiscardReportUrl = (reportId: string) => {
+  return `/api/reports/${reportId}/discard`;
+};
+
+export const discardReport = async (
+  reportId: string,
+  options?: RequestInit,
+): Promise<SponsorReport> => {
+  return customFetch<SponsorReport>(getDiscardReportUrl(reportId), {
+    ...options,
+    method: "POST",
+  });
+};
+
+export const getDiscardReportMutationOptions = <
+  TError = ErrorType<ErrorResponse>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof discardReport>>,
+    TError,
+    { reportId: string },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationOptions<
+  Awaited<ReturnType<typeof discardReport>>,
+  TError,
+  { reportId: string },
+  TContext
+> => {
+  const mutationKey = ["discardReport"];
+  const { mutation: mutationOptions, request: requestOptions } = options
+    ? options.mutation &&
+      "mutationKey" in options.mutation &&
+      options.mutation.mutationKey
+      ? options
+      : { ...options, mutation: { ...options.mutation, mutationKey } }
+    : { mutation: { mutationKey }, request: undefined };
+
+  const mutationFn: MutationFunction<
+    Awaited<ReturnType<typeof discardReport>>,
+    { reportId: string }
+  > = (props) => {
+    const { reportId } = props ?? {};
+
+    return discardReport(reportId, requestOptions);
+  };
+
+  return { mutationFn, ...mutationOptions };
+};
+
+export type DiscardReportMutationResult = NonNullable<
+  Awaited<ReturnType<typeof discardReport>>
+>;
+
+export type DiscardReportMutationError = ErrorType<ErrorResponse>;
+
+/**
+ * @summary Discard draft report
+ */
+export const useDiscardReport = <
+  TError = ErrorType<ErrorResponse>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof discardReport>>,
+    TError,
+    { reportId: string },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationResult<
+  Awaited<ReturnType<typeof discardReport>>,
+  TError,
+  { reportId: string },
+  TContext
+> => {
+  return useMutation(getDiscardReportMutationOptions(options));
+};
+
+/**
+ * Called by Replit Scheduled Deployment every 4 hours. Sends follow-up Gmail to PI for any reports still in PI Review past the nag interval.
+ * @summary PI nag engine check
+ */
+export const getNagCheckUrl = () => {
+  return `/api/internal/nag-check`;
+};
+
+export const nagCheck = async (
+  options?: RequestInit,
+): Promise<NagCheckResponse> => {
+  return customFetch<NagCheckResponse>(getNagCheckUrl(), {
+    ...options,
+    method: "POST",
+  });
+};
+
+export const getNagCheckMutationOptions = <
+  TError = ErrorType<unknown>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof nagCheck>>,
+    TError,
+    void,
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationOptions<
+  Awaited<ReturnType<typeof nagCheck>>,
+  TError,
+  void,
+  TContext
+> => {
+  const mutationKey = ["nagCheck"];
+  const { mutation: mutationOptions, request: requestOptions } = options
+    ? options.mutation &&
+      "mutationKey" in options.mutation &&
+      options.mutation.mutationKey
+      ? options
+      : { ...options, mutation: { ...options.mutation, mutationKey } }
+    : { mutation: { mutationKey }, request: undefined };
+
+  const mutationFn: MutationFunction<
+    Awaited<ReturnType<typeof nagCheck>>,
+    void
+  > = () => {
+    return nagCheck(requestOptions);
+  };
+
+  return { mutationFn, ...mutationOptions };
+};
+
+export type NagCheckMutationResult = NonNullable<
+  Awaited<ReturnType<typeof nagCheck>>
+>;
+
+export type NagCheckMutationError = ErrorType<unknown>;
+
+/**
+ * @summary PI nag engine check
+ */
+export const useNagCheck = <
+  TError = ErrorType<unknown>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof nagCheck>>,
+    TError,
+    void,
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationResult<
+  Awaited<ReturnType<typeof nagCheck>>,
+  TError,
+  void,
+  TContext
+> => {
+  return useMutation(getNagCheckMutationOptions(options));
 };

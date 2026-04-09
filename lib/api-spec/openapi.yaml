@@ -14,6 +14,8 @@ tags:
     description: Regulatory document management
   - name: settings
     description: Application settings
+  - name: reports
+    description: Sponsor report co-pilot
 paths:
   /healthz:
     get:
@@ -123,6 +125,172 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/ErrorResponse"
+
+  /reports:
+    get:
+      operationId: listReports
+      tags: [reports]
+      summary: List sponsor reports
+      description: Returns all sponsor report records sorted by generation date (newest first)
+      responses:
+        "200":
+          description: List of reports
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/SponsorReport"
+
+  /reports/generate:
+    post:
+      operationId: generateReport
+      tags: [reports]
+      summary: Generate sponsor report
+      description: Fetches data from Sheets/Notion, copies the template Doc, fills placeholders, grants PI access. Returns staleness warning if sheet >24h old.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/GenerateReportInput"
+      responses:
+        "200":
+          description: Report created
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/GenerateReportResponse"
+        "409":
+          description: Concurrent report guard — active report in PI Review or Approved
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "503":
+          description: Required integration not connected
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
+  /reports/{reportId}/send-to-pi:
+    post:
+      operationId: sendReportToPi
+      tags: [reports]
+      summary: Send report to PI for review
+      description: Sends Gmail to PI with doc link and advances status to PI Review
+      parameters:
+        - name: reportId
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Email sent, status advanced
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SponsorReport"
+        "404":
+          description: Report not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
+  /reports/{reportId}/mark-approved:
+    post:
+      operationId: markReportApproved
+      tags: [reports]
+      summary: Mark report as PI approved
+      description: Manually advances report status from PI Review to Approved
+      parameters:
+        - name: reportId
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Status advanced to Approved
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SponsorReport"
+        "404":
+          description: Report not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
+  /reports/{reportId}/mark-final:
+    post:
+      operationId: markReportFinal
+      tags: [reports]
+      summary: Mark report final and update sponsor call
+      description: Appends report link to calendar event description and advances status to Sent
+      parameters:
+        - name: reportId
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Status advanced to Sent, calendar updated
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SponsorReport"
+        "404":
+          description: Report not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
+  /reports/{reportId}/discard:
+    post:
+      operationId: discardReport
+      tags: [reports]
+      summary: Discard draft report
+      description: Deletes the orphaned Google Doc from Drive and marks report as Discarded
+      parameters:
+        - name: reportId
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Report discarded
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SponsorReport"
+        "404":
+          description: Report not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
+  /internal/nag-check:
+    post:
+      operationId: nagCheck
+      tags: [reports]
+      summary: PI nag engine check
+      description: Called by Replit Scheduled Deployment every 4 hours. Sends follow-up Gmail to PI for any reports still in PI Review past the nag interval.
+      responses:
+        "200":
+          description: Nag check result
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/NagCheckResponse"
 
 components:
   schemas:
@@ -269,6 +437,84 @@ components:
           type: string
         nagIntervalHours:
           type: integer
+
+    SponsorReport:
+      type: object
+      properties:
+        id:
+          type: string
+          description: UUID
+        docUrl:
+          type: string
+          description: Google Docs URL
+        docId:
+          type: string
+          description: Google Drive file ID
+        status:
+          type: string
+          enum: [Draft, "PI Review", Approved, Sent, Discarded]
+        generatedAt:
+          type: string
+          description: ISO 8601 timestamp
+        sentToPiAt:
+          type: ["string", "null"]
+          description: ISO 8601 timestamp
+        lastNagAt:
+          type: ["string", "null"]
+          description: ISO 8601 timestamp
+        approvedAt:
+          type: ["string", "null"]
+          description: ISO 8601 timestamp
+        finalizedAt:
+          type: ["string", "null"]
+          description: ISO 8601 timestamp
+        unreplacedPlaceholders:
+          type: array
+          items:
+            type: string
+          description: Any {{...}} placeholders not replaced during generation
+      required:
+        - id
+        - docUrl
+        - docId
+        - status
+        - generatedAt
+        - unreplacedPlaceholders
+
+    GenerateReportInput:
+      type: object
+      properties:
+        acknowledgeStale:
+          type: boolean
+          description: Set true to proceed despite stale enrollment data
+      required: []
+
+    GenerateReportResponse:
+      type: object
+      properties:
+        report:
+          $ref: "#/components/schemas/SponsorReport"
+        stalenessWarning:
+          type: ["string", "null"]
+          description: Warning if sheet not updated in last 24h
+        requiresStaleAcknowledge:
+          type: boolean
+          description: If true, re-submit with acknowledgeStale=true to proceed
+      required:
+        - requiresStaleAcknowledge
+
+    NagCheckResponse:
+      type: object
+      properties:
+        nagsSent:
+          type: integer
+        errors:
+          type: array
+          items:
+            type: string
+      required:
+        - nagsSent
+        - errors
 
     ErrorResponse:
       type: object

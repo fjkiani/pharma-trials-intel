@@ -92,6 +92,72 @@ export interface AppSettingsInput {
   nagIntervalHours?: number;
 }
 
+export type SponsorReportStatus =
+  (typeof SponsorReportStatus)[keyof typeof SponsorReportStatus];
+
+export const SponsorReportStatus = {
+  Draft: "Draft",
+  PI_Review: "PI Review",
+  Approved: "Approved",
+  Sent: "Sent",
+  Discarded: "Discarded",
+} as const;
+
+export interface SponsorReport {
+  /** UUID */
+  id: string;
+  /** Google Docs URL */
+  docUrl: string;
+  /** Google Drive file ID */
+  docId: string;
+  status: SponsorReportStatus;
+  /** ISO 8601 timestamp */
+  generatedAt: string;
+  /**
+   * ISO 8601 timestamp
+   * @nullable
+   */
+  sentToPiAt?: string | null;
+  /**
+   * ISO 8601 timestamp
+   * @nullable
+   */
+  lastNagAt?: string | null;
+  /**
+   * ISO 8601 timestamp
+   * @nullable
+   */
+  approvedAt?: string | null;
+  /**
+   * ISO 8601 timestamp
+   * @nullable
+   */
+  finalizedAt?: string | null;
+  /** Any {{...}} placeholders not replaced during generation */
+  unreplacedPlaceholders: string[];
+}
+
+export interface GenerateReportInput {
+  /** Set true to proceed despite stale enrollment data */
+  acknowledgeStale?: boolean;
+}
+
+export interface GenerateReportResponse {
+  report?: SponsorReport;
+  /**
+   * Warning if sheet not updated in last 24h
+   * @nullable
+   */
+  stalenessWarning?: string | null;
+  /** If true, re-submit with acknowledgeStale=true to proceed */
+  requiresStaleAcknowledge: boolean;
+}
+
+export interface NagCheckResponse {
+  nagsSent: number;
+  errors: string[];
+}
+
 export interface ErrorResponse {
   error: string;
 }
