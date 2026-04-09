@@ -9,8 +9,16 @@ export interface CalendarSyncResult {
 
 function buildReminderDate(expirationDate: string): string {
   const expiry = new Date(expirationDate);
-  const reminder = new Date(expiry.getTime() - 30 * 24 * 60 * 60 * 1000);
+  const thirtyDaysBefore = new Date(expiry.getTime() - 30 * 24 * 60 * 60 * 1000);
+  const tomorrow = new Date(Date.now() + 24 * 60 * 60 * 1000);
+  const reminder = thirtyDaysBefore < tomorrow ? tomorrow : thirtyDaysBefore;
   return reminder.toISOString().split("T")[0];
+}
+
+function nextDay(dateStr: string): string {
+  const d = new Date(dateStr + "T00:00:00Z");
+  d.setUTCDate(d.getUTCDate() + 1);
+  return d.toISOString().split("T")[0];
 }
 
 function makeEventKey(docId: string, expirationDate: string): string {
@@ -67,7 +75,7 @@ export async function syncCalendarReminders(
           summary: `Renewal Reminder: ${doc.name}`,
           description: `Regulatory document "${doc.name}" expires on ${doc.expirationDate}. Review and renew before the deadline.${doc.fileLink ? `\n\nDocument: ${doc.fileLink}` : ""}`,
           start: { date: reminderDate },
-          end: { date: reminderDate },
+          end: { date: nextDay(reminderDate) },
           extendedProperties: {
             private: { regulatoryEventKey: eventKey },
           },
