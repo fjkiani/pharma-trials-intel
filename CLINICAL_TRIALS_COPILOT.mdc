@@ -1,0 +1,404 @@
+# Clinical Trials Co-Pilot — Full System Documentation
+
+## Overview
+
+A web application for clinical research coordinators ("Susan") that automates two major pain points:
+1. **Regulatory document management** — tracks expiring/expired documents from Notion, syncs deadlines to Google Calendar
+2. **Sponsor report generation** — pulls live trial data from Google Sheets + Notion, fills a Google Docs template, routes it through a PI review/approval workflow, and finalizes by appending the report link to a Google Calendar sponsor call event
+
+---
+
+## Architecture
+
+```
+┌─────────────────────────────────────────────────────────────────┐
+│                     Replit Monorepo (pnpm)                      │
+│                                                                 │
+│  artifacts/clinical-trials   ← React + Vite frontend           │
+│  artifacts/api-server        ← Express + Node.js backend        │
+│  lib/api-spec                ← OpenAPI 3.1 source of truth      │
+│  lib/api-zod                 ← Generated Zod schemas            │
+│  lib/api-client-react        ← Generated React Query hooks      │
+│  scripts/                   ← Seed + nag-runner scripts         │
+└─────────────────────────────────────────────────────────────────┘
+```
+
+### Ports
+| Service | Dev Port |
+|---------|----------|
+| API Server | 8080 |
+| Frontend | assigned by Replit (env PORT) |
+
+### URL prefix
+- All API routes: `/api/...`
+- Frontend served at: `/`
+
+---
+
+## Integrations Connected
+
+| Integration | Connector ID | Auth Method | Used For |
+|-------------|-------------|-------------|----------|
+| Notion | `conn_notion_01KNREG1192A3Y9R6V3K73HDES` | Replit proxy | Regulatory docs, AE log, deviation log |
+| Google Calendar | `conn_google-calendar_01KNREH8FEDZNR777E2M542SEG` | googleapis OAuth | Milestone calendar sync, sponsor call update |
+| Google Drive | `conn_google-drive_01KNSCZAXZXARHD7DVD08NSKAC` | ReplitConnectors proxy | Sheet freshness check, Sheets read/write, Doc copy/delete/permissions |
+| Google Docs | `conn_google-docs_01KNREF0HTC1AARCPAEBN6J6Y5` | googleapis OAuth | Template placeholder fill, placeholder scan |
+| Gmail | `conn_google-mail_01KNSE85K7JABHK7TKG5B3ZJCN` | googleapis OAuth | PI review email, nag emails |
+
+---
+
+## Data Sources
+
+### Google Sheet (EDC Enrollment Extract)
+**Format:**
+```
+Row 1 (header):  Metric          | Value
+Row 2:           Enrolled        | 42
+Row 3:           Screened        | 67
+Row 4:           Screen Failures | 18
+Row 5:           Withdrawals     | 7
+```
+- Two columns (A = metric name, B = integer value)
+- Header row number is configurable in Settings (default: row 1)
+- Tab name is configurable in Settings (default: Sheet1)
+- The app reads the Sheet ID from Settings → Google Sheets ID
+- Freshness: if `modifiedTime` (from Google Drive `files.get`) is older than 24 hours, a staleness warning is shown before generating a report
+
+### Notion Databases (three separate DBs)
+| Database | Required Properties | Used For |
+|----------|-------------------|----------|
+| Regulatory Documents | `Document Name` (title), `Expiration Date` (date), `Status` (select) | Document list + summary |
+| AE Log | `AE Description` (title), `Grade` (select: Grade 1–5), `Date Reported` (date), `Resolved` (checkbox) | AE count + Grade 3+ count for reports |
+| Deviation Log | `Deviation Type` (title), `Date` (date), `Severity` (select: Minor/Major) | Deviation count + major count for reports |
+
+All Notion reads are fully paginated (`has_more`/`start_cursor`, 100 pages per request).
+
+### Google Docs Template
+A Google Doc with `{{placeholder}}` tokens throughout:
+
+| Placeholder | Filled With |
+|-------------|------------|
+| `{{enrolled}}` | Enrolled count from Sheets |
+| `{{screened}}` | Screened count from Sheets |
+| `{{screen_failures}}` | Screen Failures count from Sheets |
+| `{{withdrawals}}` | Withdrawals count from Sheets |
+| `{{ae_count}}` | Total AE count from Notion |
+| `{{ae_grade3_plus}}` | Grade 3+ AE count from Notion |
+| `{{deviation_count}}` | Total deviations from Notion |
+| `{{major_deviations}}` | Major deviations from Notion |
+| `{{next_milestone}}` | Next upcoming regulatory milestone name |
+| `{{next_milestone_date}}` | Date of that milestone |
+| `{{report_date}}` | Today's date (e.g. "April 9, 2026") |
+
+After filling, the app scans the full document (paragraphs, tables, table cells, tableOfContents) for any remaining `{{...}}` patterns and surfaces them as warnings.
+
+---
+
+## Backend — API Routes
+
+Base path: `/api`
+
+### Regulatory Document Routes (Task #1)
+
+| Method | Path | Description |
+|--------|------|-------------|
+| GET | `/regulatory/documents` | All docs from Notion, with status (Current/Expiring Soon/Expired) |
+| GET | `/regulatory/summary` | Counts by status |
+| POST | `/regulatory/sync-calendar` | Creates/updates Google Calendar events for expiring docs |
+| GET | `/settings` | Returns current app settings from Replit DB |
+| PUT | `/settings` | Saves app settings to Replit DB |
+
+### Sponsor Report Routes (Task #2)
+
+| Method | Path | Description |
+|--------|------|-------------|
+| GET | `/reports` | Lists all reports from Replit DB (newest first) |
+| POST | `/reports/generate` | Full generation flow (see below) |
+| POST | `/reports/:id/send-to-pi` | Sends PI review email via Gmail, advances Draft → PI Review |
+| POST | `/reports/:id/mark-approved` | Advances PI Review → Approved |
+| POST | `/reports/:id/mark-final` | Appends report link to Google Calendar event, advances Approved → Sent |
+| POST | `/reports/:id/discard` | Deletes Google Doc from Drive, marks Discarded |
+| POST | `/internal/nag-check` | Sends nag emails for PI Review reports past nag interval |
+
+### Healthcheck
+| Method | Path | Description |
+|--------|------|-------------|
+| GET | `/healthz` | Returns `{ status: "ok" }` |
+
+---
+
+## Sponsor Report Generation Flow
+
+```
+POST /reports/generate
+│
+├── 1. Validate settings (piEmail, googleSheetsId, googleDocsTemplateId required)
+│
+├── 2. Concurrent guard
+│      If a report is already in Draft, PI Review, or Approved status → 409
+│
+├── 3. Staleness check (Google Drive files.get modifiedTime)
+│      If sheet is older than 24h AND acknowledgeStale is not true:
+│        → return { requiresStaleAcknowledge: true, stalenessWarning: "..." }
+│      (Frontend shows modal; user clicks "Generate Anyway" → retry with acknowledgeStale=true)
+│
+├── 4. Read enrollment data from Google Sheets
+│      Hard error 503 if fails (no silent zero fallback)
+│
+├── 5. Read AE/deviation/milestone data from Notion
+│      Hard error 503 if Notion API fails
+│      Zero counts only for genuinely empty databases
+│
+├── 6. Copy Google Docs template (Drive files.copy)
+│      Hard error 503 if fails, no orphan created
+│
+├── 7. Fill all 11 placeholders (Docs batchUpdate replaceAllText matchCase:true)
+│      Hard error 503 if fails → deletes orphaned doc
+│
+├── 8. Scan for unreplaced {{...}} placeholders (full document tree)
+│      Non-fatal: surfaces as warnings in response, not error
+│
+├── 9. Grant PI writer access (Drive permissions.create)
+│      Hard error 503 if fails → deletes orphaned doc
+│
+├── 10. Save report record to Replit DB (status: Draft)
+│
+└── 11. Return { report, stalenessWarning, requiresStaleAcknowledge: false }
+```
+
+---
+
+## Report Lifecycle
+
+```
+[Generate]
+    │
+    ▼
+  Draft ──────────────────────────────────────────────────► Discarded
+    │                                                        (Drive doc deleted)
+    │ [Send to PI]
+    │ (Gmail email sent to piEmail)
+    ▼
+ PI Review ──── [Nag engine fires every nagIntervalHours]
+    │
+    │ [Mark Approved]
+    ▼
+ Approved
+    │
+    │ [Mark Final]
+    │ (Appends doc URL to Google Calendar sponsor call event description)
+    ▼
+  Sent
+```
+
+**Status rules:**
+- Only one active report (Draft/PI Review/Approved) allowed at a time
+- Discard only allowed from Draft
+- Mark Final requires `sponsorCallEventId` to be configured in Settings
+- All transitions are hard errors on any integration failure (no silent state advancement)
+
+### Report Record Schema (Replit DB)
+```typescript
+{
+  id: string           // UUID
+  status: "Draft" | "PI Review" | "Approved" | "Sent" | "Discarded"
+  docId: string        // Google Docs file ID
+  docUrl: string       // https://docs.google.com/document/d/{docId}/edit
+  generatedAt: string  // ISO timestamp
+  sentToPiAt?: string
+  approvedAt?: string
+  finalizedAt?: string
+  lastNagAt?: string
+  unreplacedPlaceholders: string[]  // any {{...}} left after fill
+}
+```
+
+**Storage keys:**
+- `reports:all` — JSON array of all report IDs (index)
+- `report:{uuid}` — individual report record
+- `app:settings` — settings object
+
+---
+
+## Nag Engine
+
+`POST /internal/nag-check`:
+1. Reads all reports from Replit DB
+2. Filters to `PI Review` status
+3. For each: checks if `lastNagAt` (or `sentToPiAt`) is older than `nagIntervalHours` (default 4h, configurable in Settings)
+4. If yes: sends a Gmail nag email and updates `lastNagAt`
+5. Returns `{ nagsSent: number, errors: string[] }`
+
+**Optional auth:** If `NAG_SECRET` env var is set, requests must include `X-Nag-Secret: <value>` header (returns 401 otherwise).
+
+**Scheduled Deployment setup:**
+- Run command: `pnpm --filter @workspace/scripts run nag`
+- Cron: `0 */4 * * *` (every 4 hours)
+- Set `NAG_URL` = your deployed API URL + `/api/internal/nag-check`
+- Set `NAG_SECRET` = shared secret (required in production)
+
+See `artifacts/api-server/SCHEDULED_DEPLOYMENT.md` for full setup steps.
+
+---
+
+## Frontend Pages
+
+All pages live in `artifacts/clinical-trials/src/pages/`.
+
+### `/` — Dashboard
+- Summary cards: regulatory doc counts (Current/Expiring Soon/Expired)
+- Quick links to other sections
+
+### `/documents` — Regulatory Documents
+- Table of all docs with name, expiration date, days remaining, status badge
+- "Sync to Calendar" button → `POST /regulatory/sync-calendar`
+
+### `/reports` — Sponsor Reports
+- **Generate Report** button (triggers staleness modal if needed)
+- **Concurrent guard banner** — shown when another report is already active
+- **Staleness warning modal** — shown when sheet is 24h+ old, requires acknowledgment
+- **Status bar** — current report status with action buttons:
+  - Draft → [Send to PI] [Discard]
+  - PI Review → [Mark Approved]
+  - Approved → [Mark Final]
+- **Unreplaced placeholder warning** — shown if any `{{...}}` remain after fill
+- **Report history list** — all past reports with status, date, doc link
+
+### `/settings` — Settings
+All fields saved to Replit DB via `PUT /api/settings`:
+
+| Field | Description |
+|-------|-------------|
+| Notion Regulatory DB ID | Notion database ID for regulatory documents |
+| Notion AE Log DB ID | Notion database ID for adverse events |
+| Notion Deviation Log DB ID | Notion database ID for protocol deviations |
+| Google Sheets ID | File ID of the EDC enrollment extract sheet |
+| Sheet Tab Name | Tab name (default: Sheet1) |
+| Header Row Number | 1-based row number of the header (default: 1) |
+| Google Docs Template ID | File ID of the report template |
+| PI Email | Principal Investigator's email address |
+| Sponsor Email | Sponsor's email (for future use) |
+| Google Calendar ID | Calendar ID (default: primary) |
+| **Sponsor Call Event ID** | Google Calendar event ID for the sponsor call — report link is appended here on finalization. To find it: open event in Google Calendar → Edit → URL contains `eid=` param (base64-encoded). Decode at base64decode.org to get the raw event ID. |
+| Nag Interval (hours) | Hours between PI reminder emails (default: 4) |
+
+---
+
+## Backend File Structure
+
+```
+artifacts/api-server/src/
+├── index.ts                    Entry point, Express app setup
+├── routes/
+│   ├── index.ts                Registers all routers
+│   ├── regulatory.ts           /regulatory/* routes
+│   ├── reports.ts              /reports/* + /internal/nag-check routes
+│   └── settings.ts             /settings routes
+└── lib/
+    ├── settings.ts             Replit DB settings get/set
+    ├── logger.ts               Pino logger
+    ├── reportHistory.ts        Replit DB report CRUD
+    ├── notionClient.ts         Notion proxy client factory
+    ├── notionAeDeviation.ts    Notion AE/deviation/milestone reads
+    ├── googleOAuthClient.ts    Generic googleapis OAuth2 client factory
+    ├── googleDriveClient.ts    ReplitConnectors proxy for Drive + Sheets API
+    ├── googleSheets.ts         readEnrollmentData + getSheetFreshness
+    ├── googleDocs.ts           copyTemplate, fillPlaceholders, scanForUnreplacedPlaceholders, grantWriterAccess, deleteDoc
+    ├── googleCalendarClient.ts Google Calendar OAuth client
+    ├── gmailClient.ts          Gmail OAuth client + send
+    └── gmail.ts                Email HTML templates (PI review + nag)
+```
+
+---
+
+## Frontend File Structure
+
+```
+artifacts/clinical-trials/src/
+├── App.tsx                     Router + sidebar nav
+├── components/
+│   └── ui/                    shadcn/ui components
+└── pages/
+    ├── dashboard.tsx
+    ├── documents.tsx
+    ├── reports.tsx             Full lifecycle UI
+    └── settings.tsx
+```
+
+---
+
+## Scripts
+
+```
+scripts/src/
+├── seed-demo.ts    Populates Notion DBs + Google Sheet with demo data
+└── nag-runner.ts   Calls POST /internal/nag-check (for Scheduled Deployment)
+```
+
+**Run seed:**
+```bash
+NOTION_TOKEN=secret_xxx pnpm --filter @workspace/scripts run seed
+```
+
+**Run nag manually (dev):**
+```bash
+NAG_URL=http://localhost:8080/api/internal/nag-check \
+  pnpm --filter @workspace/scripts run nag
+```
+
+---
+
+## Staleness Demo Setup
+
+Google Drive's API does not allow backdating `modifiedTime`. To trigger the 24-hour staleness warning immediately during a demo:
+
+1. Open Replit Secrets for the API server
+2. Add: `STALE_THRESHOLD_HOURS = 0.001` (threshold becomes ~3 seconds)
+3. Restart the API server
+4. Open `/reports` → Generate Report → staleness warning will appear
+5. After the demo, delete `STALE_THRESHOLD_HOURS` to restore the 24-hour default
+
+---
+
+## Environment Variables / Secrets
+
+| Variable | Where Set | Required | Description |
+|----------|-----------|----------|-------------|
+| `NOTION_TOKEN` | Replit Secrets | For seed script only | Notion integration token |
+| `STALE_THRESHOLD_HOURS` | Replit Secrets (API server) | No | Override staleness threshold (demo) |
+| `NAG_SECRET` | Replit Secrets (API server + scheduled job) | Required in production | Shared secret for nag endpoint auth |
+| `NAG_URL` | Replit Secrets (scheduled job) | Required for scheduled job | Full URL to `/api/internal/nag-check` |
+| `PORT` | Auto-set by Replit | Yes | Port for each service |
+
+All Google/Notion OAuth tokens are managed automatically by Replit Integrations — no manual token handling needed.
+
+---
+
+## OpenAPI Spec
+
+Location: `lib/api-spec/openapi.yaml`
+
+Codegen command:
+```bash
+pnpm run --filter @workspace/api-spec codegen
+```
+
+This generates:
+- `lib/api-zod/src/generated/` — Zod schemas for all request/response types
+- `lib/api-client-react/src/generated/` — React Query hooks
+
+---
+
+## Connections Between Components
+
+```
+Frontend (React Query hooks)
+    ↕ HTTP /api/*
+Backend (Express)
+    ├── Replit DB ←──────────── Settings, report history
+    ├── Notion (proxy) ←─────── Regulatory docs, AE log, deviation log
+    ├── Google Drive (proxy) ←── Sheet freshness, enrollment data, doc copy/delete/permissions
+    ├── Google Docs (OAuth) ←─── Template placeholder fill, placeholder scan
+    ├── Google Calendar (OAuth) ← Milestone sync, sponsor call event update
+    └── Gmail (OAuth) ←────────── PI review email, nag emails
+```
