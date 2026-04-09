@@ -134,7 +134,11 @@ router.post("/regulatory/sync-calendar", async (req, res): Promise<void> => {
   if (notionClient) {
     const settings = await getSettings();
     if (settings.notionRegulatoryDbId) {
-      docs = await listRegulatoryDocuments(notionClient);
+      try {
+        docs = await listRegulatoryDocuments(notionClient);
+      } catch (err) {
+        logger.warn({ err }, "Notion query failed during calendar sync — syncing with empty doc list");
+      }
     }
   }
 
