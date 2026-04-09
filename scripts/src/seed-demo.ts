@@ -4,17 +4,15 @@
  * Populates demo data for the Clinical Trials Co-Pilot.
  *
  * Usage:
- *   pnpm --filter @workspace/scripts run seed
+ *   NOTION_TOKEN=xxx pnpm --filter @workspace/scripts run seed
  *
- * Prerequisites:
- * - Set NOTION_TOKEN env var (your Notion integration token)
- * - Set GOOGLE_SHEETS_ID env var (the ID of the enrollment sheet)
- * - Set GOOGLE_SERVICE_ACCOUNT_KEY env var (path to service account JSON) OR
- *   rely on Application Default Credentials
+ * Optional env vars:
+ *   NOTION_TOKEN   — your Notion integration token (required for Notion seed)
  *
- * OR configure all in the Settings page and this script reads from Replit DB.
+ * All Google Workspace writes (Sheets) use the Replit Connectors proxy
+ * (same as the main API server). The Google Drive connector must be connected.
  *
- * Notion DB IDs must be configured in the app settings first.
+ * Notion DB IDs and Google Sheets ID must be saved in app Settings first.
  */
 
 import Database from "@replit/database";
@@ -39,7 +37,7 @@ interface AppSettings {
 
 async function getSettings(): Promise<AppSettings> {
   const stored = await db.get(SETTINGS_KEY);
-  return (stored ?? {}) as AppSettings;
+  return (stored ?? {}) as unknown as AppSettings;
 }
 
 const NOTION_HEADERS = {
@@ -64,7 +62,7 @@ async function notionCreate(
 }
 
 async function seedAeLog(dbId: string): Promise<void> {
-  console.log("🔬 Seeding AE Log...");
+  console.log("🔬 Seeding AE Log (4 entries)...");
 
   const aes = [
     { name: "Mild injection site reaction", grade: "Grade 1", date: "2026-03-05", resolved: true },
@@ -85,7 +83,7 @@ async function seedAeLog(dbId: string): Promise<void> {
 }
 
 async function seedDeviationLog(dbId: string): Promise<void> {
-  console.log("📋 Seeding Deviation Log...");
+  console.log("📋 Seeding Deviation Log (2 entries)...");
 
   const devs = [
     { name: "Missed protocol-required visit window (±3 days)", date: "2026-03-15", severity: "Minor" },
@@ -103,7 +101,7 @@ async function seedDeviationLog(dbId: string): Promise<void> {
 }
 
 async function seedRegulatoryMilestones(dbId: string): Promise<void> {
-  console.log("📅 Seeding Regulatory Milestones...");
+  console.log("📅 Seeding Regulatory Milestones (3 entries)...");
 
   const today = new Date();
   const soon = new Date(today);
@@ -114,21 +112,9 @@ async function seedRegulatoryMilestones(dbId: string): Promise<void> {
   past.setDate(today.getDate() - 15);
 
   const milestones = [
-    {
-      name: "IRB Approval — Initial",
-      date: past.toISOString().split("T")[0],
-      status: "Expired",
-    },
-    {
-      name: "Informed Consent Form v2.1",
-      date: soon.toISOString().split("T")[0],
-      status: "Expiring Soon",
-    },
-    {
-      name: "FDA Form 1572 — Site Investigator",
-      date: future.toISOString().split("T")[0],
-      status: "Current",
-    },
+    { name: "IRB Approval — Initial", date: past.toISOString().split("T")[0], status: "Expired" },
+    { name: "Informed Consent Form v2.1", date: soon.toISOString().split("T")[0], status: "Expiring Soon" },
+    { name: "FDA Form 1572 — Site Investigator", date: future.toISOString().split("T")[0], status: "Current" },
   ];
 
   for (const m of milestones) {
@@ -141,24 +127,89 @@ async function seedRegulatoryMilestones(dbId: string): Promise<void> {
   }
 }
 
-async function seedGoogleSheet(sheetId: string, tabName: string): Promise<void> {
+async function getConnectorsToken(): Promise<string | null> {
+  const hostname = process.env.REPLIT_CONNECTORS_HOSTNAME;
+  if (!hostname) return null;
+
+  const xReplitToken = process.env.REPL_IDENTITY
+    ? "repl " + process.env.REPL_IDENTITY
+    : process.env.WEB_REPL_RENEWAL
+      ? "depl " + process.env.WEB_REPL_RENEWAL
+      : null;
+
+  if (!xReplitToken) return null;
+
+  const res = await fetch(
+    `https://${hostname}/api/v2/connection?include_secrets=true&connector_names=google-drive`,
+    {
+      headers: { Accept: "application/json", "X-Replit-Token": xReplitToken },
+    },
+  );
+  const data = (await res.json()) as { items?: Array<{ settings?: { access_token?: string; oauth?: { credentials?: { access_token?: string } } } }> };
+  const conn = (data.items ?? [])[0];
+  return (
+    conn?.settings?.access_token ??
+    conn?.settings?.oauth?.credentials?.access_token ??
+    null
+  );
+}
+
+async function seedGoogleSheet(
+  sheetId: string,
+  tabName: string,
+  headerRow: number,
+): Promise<void> {
   console.log("📊 Seeding Google Sheet enrollment data...");
-  console.log(
-    "  ⚠️  Google Sheets seed requires googleapis credentials (service account or ADC).",
+
+  const accessToken = await getConnectorsToken();
+  if (!accessToken) {
+    console.log("  ⚠️  Google Drive connector not available in this context.");
+    console.log("     Manually populate the sheet with:");
+    console.log(`       Row ${headerRow}: Metric | Value`);
+    console.log(`       Row ${headerRow + 1}: Enrolled | 42`);
+    console.log(`       Row ${headerRow + 2}: Screened | 67`);
+    console.log(`       Row ${headerRow + 3}: Screen Failures | 18`);
+    console.log(`       Row ${headerRow + 4}: Withdrawals | 7`);
+    return;
+  }
+
+  const values = [
+    ["Metric", "Value"],
+    ["Enrolled", "42"],
+    ["Screened", "67"],
+    ["Screen Failures", "18"],
+    ["Withdrawals", "7"],
+  ];
+
+  const startRow = headerRow;
+  const range = encodeURIComponent(`'${tabName}'!A${startRow}:B${startRow + 4}`);
+
+  const writeRes = await fetch(
+    `https://sheets.googleapis.com/v4/spreadsheets/${sheetId}/values/${range}?valueInputOption=USER_ENTERED`,
+    {
+      method: "PUT",
+      headers: {
+        Authorization: `Bearer ${accessToken}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({ range: `'${tabName}'!A${startRow}:B${startRow + 4}`, majorDimension: "ROWS", values }),
+    },
   );
-  console.log("  Manual setup: open the sheet and populate:");
-  console.log("    Row 1: Metric | Value (headers)");
-  console.log("    Row 2: Enrolled | 42");
-  console.log("    Row 3: Screened | 67");
-  console.log("    Row 4: Screen Failures | 18");
-  console.log("    Row 5: Withdrawals | 7");
-  console.log("");
-  console.log(
-    `  Sheet ID: ${sheetId}  Tab: ${tabName}`,
-  );
-  console.log(
-    "  To trigger the staleness warning in demo, do NOT update the sheet for 26+ hours.",
-  );
+
+  if (!writeRes.ok) {
+    const err = await writeRes.text();
+    console.log(`  ⚠️  Sheet write failed (${writeRes.status}): ${err}`);
+    console.log("     Populate manually with: Enrolled=42, Screened=67, Screen Failures=18, Withdrawals=7");
+    return;
+  }
+
+  console.log("  ✓ Wrote enrollment rows: Enrolled=42, Screened=67, Screen Failures=18, Withdrawals=7");
+
+  console.log("  ℹ️  To trigger the staleness warning in the demo:");
+  console.log("     Do NOT update the sheet for 26+ hours after seeding,");
+  console.log("     OR manually set the sheet's last-modified time by writing and reverting a dummy value.");
+  console.log("     Tip: the staleness check uses the Google Drive file modifiedTime,");
+  console.log("     so any edit resets the clock.");
 }
 
 async function main() {
@@ -167,55 +218,52 @@ async function main() {
 
   const settings = await getSettings();
 
-  if (!process.env.NOTION_TOKEN) {
-    console.error(
-      "❌ NOTION_TOKEN env var not set. Please set it to your Notion integration token.",
-    );
-    process.exit(1);
-  }
-
-  const requiredSettings = [
+  const useNotion = !!process.env.NOTION_TOKEN;
+  const requiredNotionSettings = [
     ["notionAeLogDbId", "AE Log Notion DB ID"],
     ["notionDeviationLogDbId", "Deviation Log Notion DB ID"],
     ["notionRegulatoryDbId", "Regulatory Milestones Notion DB ID"],
   ] as const;
 
-  let hasErrors = false;
-  for (const [key, label] of requiredSettings) {
-    if (!settings[key]) {
-      console.error(`❌ ${label} not set in app settings (Settings page → ${label})`);
-      hasErrors = true;
+  if (useNotion) {
+    let hasErrors = false;
+    for (const [key, label] of requiredNotionSettings) {
+      if (!settings[key]) {
+        console.error(`❌ ${label} not set in app settings (Settings page → ${label})`);
+        hasErrors = true;
+      }
     }
-  }
-
-  if (hasErrors) {
-    console.error(
-      "\nPlease configure all required settings in the app before running the seed script.",
-    );
-    process.exit(1);
+    if (hasErrors) {
+      console.error("\nConfigure all Notion settings in the app, then rerun.\n");
+      process.exit(1);
+    }
+  } else {
+    console.log("ℹ️  NOTION_TOKEN not set — skipping Notion seeding.");
   }
 
   try {
-    await seedAeLog(settings.notionAeLogDbId);
-    await seedDeviationLog(settings.notionDeviationLogDbId);
-    await seedRegulatoryMilestones(settings.notionRegulatoryDbId);
+    if (useNotion) {
+      await seedAeLog(settings.notionAeLogDbId);
+      await seedDeviationLog(settings.notionDeviationLogDbId);
+      await seedRegulatoryMilestones(settings.notionRegulatoryDbId);
+    }
 
     if (settings.googleSheetsId) {
       await seedGoogleSheet(
         settings.googleSheetsId,
         settings.googleSheetTab || "Sheet1",
+        settings.googleSheetHeaderRow ?? 1,
       );
     } else {
       console.log("⚠️  Google Sheets ID not configured — skipping sheet seed.");
     }
 
     console.log("\n✅ Demo seed complete!");
-    console.log("\nNext steps for demo:");
-    console.log("1. Create a Google Doc with the placeholder template (see SKILL.md)");
+    console.log("\nNext steps:");
+    console.log("1. Create a Google Doc template with the placeholders listed in Settings");
     console.log("2. Set the Google Docs Template ID in Settings");
     console.log("3. Set PI Email in Settings");
-    console.log("4. Connect Google Sheets, Google Drive, Google Docs, and Gmail integrations");
-    console.log("5. Click Generate Report in the Sponsor Reports page");
+    console.log("4. Open Sponsor Reports → Generate Report");
   } catch (err) {
     console.error("\n❌ Seed failed:", err);
     process.exit(1);

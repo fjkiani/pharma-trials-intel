@@ -177,7 +177,13 @@ router.post("/reports/generate", async (req, res): Promise<void> => {
   try {
     await grantWriterAccess(docId, piEmail);
   } catch (err) {
-    logger.warn({ err }, "Could not grant PI writer access — PI may see 403");
+    logger.error({ err }, "Failed to grant PI writer access — deleting orphaned doc");
+    try { await (await import("../lib/googleDocs.js")).deleteDoc(docId); } catch {}
+    const errMsg = err instanceof Error ? err.message : String(err);
+    res.status(503).json({
+      error: `Failed to grant PI writer access on the report doc: ${errMsg}. Check Google Drive permissions and PI email address.`,
+    });
+    return;
   }
 
   const docUrl = buildDocUrl(docId);

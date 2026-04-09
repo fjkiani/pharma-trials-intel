@@ -1,4 +1,4 @@
-import { google } from "googleapis";
+import { google, docs_v1 } from "googleapis";
 import { getGoogleOAuth2Client } from "./googleOAuthClient.js";
 import {
   copyFile,
@@ -35,17 +35,38 @@ export async function fillPlaceholders(
   });
 }
 
+function extractTextFromStructuralElements(
+  elements: docs_v1.Schema$StructuralElement[],
+): string {
+  let text = "";
+  for (const el of elements) {
+    if (el.paragraph) {
+      for (const pe of el.paragraph.elements ?? []) {
+        text += pe.textRun?.content ?? "";
+      }
+    } else if (el.table) {
+      for (const row of el.table.tableRows ?? []) {
+        for (const cell of row.tableCells ?? []) {
+          text += extractTextFromStructuralElements(cell.content ?? []);
+        }
+      }
+    } else if (el.tableOfContents) {
+      text += extractTextFromStructuralElements(el.tableOfContents.content ?? []);
+    } else if (el.sectionBreak) {
+      // no text content
+    }
+  }
+  return text;
+}
+
 export async function scanForUnreplacedPlaceholders(docId: string): Promise<string[]> {
   const auth = await getGoogleOAuth2Client("google-docs");
   const docs = google.docs({ version: "v1", auth });
 
   const doc = await docs.documents.get({ documentId: docId });
-  const content = doc.data.body?.content ?? [];
+  const bodyContent = doc.data.body?.content ?? [];
 
-  const text = content
-    .flatMap((block) => block.paragraph?.elements ?? [])
-    .map((el) => el.textRun?.content ?? "")
-    .join("");
+  const text = extractTextFromStructuralElements(bodyContent);
 
   const matches = text.match(/\{\{[^}]+\}\}/g) ?? [];
   return [...new Set(matches)];
