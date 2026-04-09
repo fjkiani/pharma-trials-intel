@@ -10,8 +10,9 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { useToast } from "@/hooks/use-toast";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
-import { useEffect } from "react";
+import { useEffect, useState } from "react";
 import { useQueryClient } from "@tanstack/react-query";
+import { Lock, Unlock } from "lucide-react";
 
 const settingsSchema = z.object({
   notionRegulatoryDbId: z.string(),
@@ -33,6 +34,7 @@ type SettingsFormValues = z.infer<typeof settingsSchema>;
 export default function Settings() {
   const { toast } = useToast();
   const queryClient = useQueryClient();
+  const [locked, setLocked] = useState(true);
 
   const { data: settings, isLoading } = useGetSettings({ 
     query: { enabled: true, queryKey: getGetSettingsQueryKey() } 
@@ -116,10 +118,28 @@ export default function Settings() {
   return (
     <LayoutShell>
       <div className="space-y-6 max-w-4xl">
-        <div>
-          <h1 className="text-3xl font-bold tracking-tight">Settings</h1>
-          <p className="text-muted-foreground mt-2">Configure integrations for Notion, Google Drive, and Google Calendar.</p>
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+          <div>
+            <h1 className="text-3xl font-bold tracking-tight">Settings</h1>
+            <p className="text-muted-foreground mt-2">Configure integrations for Notion, Google Drive, and Google Calendar.</p>
+          </div>
+          <Button
+            type="button"
+            variant={locked ? "outline" : "secondary"}
+            size="sm"
+            className="gap-2 shrink-0"
+            onClick={() => setLocked((l) => !l)}
+          >
+            {locked ? <><Lock className="h-3.5 w-3.5" /> Locked</> : <><Unlock className="h-3.5 w-3.5" /> Unlocked</>}
+          </Button>
         </div>
+
+        {locked && (
+          <div className="flex items-start gap-2 rounded-md border border-muted bg-muted/40 px-4 py-3 text-sm text-muted-foreground">
+            <Lock className="h-4 w-4 mt-0.5 shrink-0" />
+            <p>Settings are pre-configured for ONCO-247. Click <strong>Locked</strong> above to edit them.</p>
+          </div>
+        )}
 
         <Form {...form}>
           <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-8">
@@ -136,7 +156,7 @@ export default function Settings() {
                     <FormItem>
                       <FormLabel>Regulatory Timeline DB ID</FormLabel>
                       <FormControl>
-                        <Input {...field} />
+                        <Input {...field} disabled={locked} />
                       </FormControl>
                       <FormMessage />
                     </FormItem>
@@ -149,7 +169,7 @@ export default function Settings() {
                     <FormItem>
                       <FormLabel>Adverse Events Log DB ID</FormLabel>
                       <FormControl>
-                        <Input {...field} />
+                        <Input {...field} disabled={locked} />
                       </FormControl>
                       <FormMessage />
                     </FormItem>
@@ -162,7 +182,7 @@ export default function Settings() {
                     <FormItem>
                       <FormLabel>Protocol Deviation Log DB ID</FormLabel>
                       <FormControl>
-                        <Input {...field} />
+                        <Input {...field} disabled={locked} />
                       </FormControl>
                       <FormMessage />
                     </FormItem>
@@ -184,7 +204,7 @@ export default function Settings() {
                     <FormItem>
                       <FormLabel>Google Calendar ID</FormLabel>
                       <FormControl>
-                        <Input {...field} />
+                        <Input {...field} disabled={locked} />
                       </FormControl>
                       <FormMessage />
                     </FormItem>
@@ -197,28 +217,27 @@ export default function Settings() {
                     <FormItem>
                       <FormLabel>Sponsor Call Event ID</FormLabel>
                       <FormControl>
-                        <Input {...field} placeholder="e.g. abc123xyz_0" />
+                        <Input {...field} placeholder="e.g. abc123xyz_0" disabled={locked} />
                       </FormControl>
-                      <FormDescription className="text-xs text-muted-foreground space-y-1">
-                        <span className="block">
-                          To find the Event ID: open the sponsor call in Google Calendar → click the three-dot menu → <strong>Edit event</strong>.
-                        </span>
-                        <span className="block">
-                          In the browser URL, look for the <code className="bg-muted px-1 rounded">eid=</code> parameter. The value is base64-encoded — paste it into{" "}
-                          <a
-                            href="https://www.base64decode.org/"
-                            target="_blank"
-                            rel="noopener noreferrer"
-                            className="underline text-primary"
-                          >
-                            base64decode.org
-                          </a>{" "}
-                          to reveal the raw event ID (the part before the space or <code className="bg-muted px-1 rounded"> </code>).
-                        </span>
-                        <span className="block">
-                          Alternatively, open the event and click <strong>More options</strong>; the event ID appears in the URL after <code className="bg-muted px-1 rounded">/eventedit/</code>.
-                        </span>
-                      </FormDescription>
+                      {!locked && (
+                        <FormDescription className="text-xs text-muted-foreground space-y-1">
+                          <span className="block">
+                            To find the Event ID: open the sponsor call in Google Calendar → click the three-dot menu → <strong>Edit event</strong>.
+                          </span>
+                          <span className="block">
+                            In the browser URL, look for the <code className="bg-muted px-1 rounded">eid=</code> parameter. The value is base64-encoded — paste it into{" "}
+                            <a
+                              href="https://www.base64decode.org/"
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              className="underline text-primary"
+                            >
+                              base64decode.org
+                            </a>{" "}
+                            to reveal the raw event ID.
+                          </span>
+                        </FormDescription>
+                      )}
                       <FormMessage />
                     </FormItem>
                   )}
@@ -230,7 +249,7 @@ export default function Settings() {
                     <FormItem>
                       <FormLabel>Google Sheets ID (EDC Extract)</FormLabel>
                       <FormControl>
-                        <Input {...field} />
+                        <Input {...field} disabled={locked} />
                       </FormControl>
                       <FormMessage />
                     </FormItem>
@@ -243,7 +262,7 @@ export default function Settings() {
                     <FormItem>
                       <FormLabel>Google Docs Agenda Template ID</FormLabel>
                       <FormControl>
-                        <Input {...field} />
+                        <Input {...field} disabled={locked} />
                       </FormControl>
                       <FormMessage />
                     </FormItem>
@@ -256,7 +275,7 @@ export default function Settings() {
                     <FormItem>
                       <FormLabel>Sheet Tab Name</FormLabel>
                       <FormControl>
-                        <Input {...field} />
+                        <Input {...field} disabled={locked} />
                       </FormControl>
                       <FormMessage />
                     </FormItem>
@@ -269,7 +288,7 @@ export default function Settings() {
                     <FormItem>
                       <FormLabel>Header Row Number</FormLabel>
                       <FormControl>
-                        <Input type="number" {...field} />
+                        <Input type="number" {...field} disabled={locked} />
                       </FormControl>
                       <FormMessage />
                     </FormItem>
@@ -291,7 +310,7 @@ export default function Settings() {
                     <FormItem>
                       <FormLabel>PI Email Address</FormLabel>
                       <FormControl>
-                        <Input type="email" {...field} />
+                        <Input type="email" {...field} disabled={locked} />
                       </FormControl>
                       <FormMessage />
                     </FormItem>
@@ -304,7 +323,7 @@ export default function Settings() {
                     <FormItem>
                       <FormLabel>Sponsor Email Address</FormLabel>
                       <FormControl>
-                        <Input type="email" {...field} />
+                        <Input type="email" {...field} disabled={locked} />
                       </FormControl>
                       <FormMessage />
                     </FormItem>
@@ -317,7 +336,7 @@ export default function Settings() {
                     <FormItem>
                       <FormLabel>Nag Interval (Hours)</FormLabel>
                       <FormControl>
-                        <Input type="number" {...field} />
+                        <Input type="number" {...field} disabled={locked} />
                       </FormControl>
                       <FormMessage />
                     </FormItem>
@@ -326,11 +345,13 @@ export default function Settings() {
               </CardContent>
             </Card>
 
-            <div className="flex justify-end">
-              <Button type="submit" disabled={updateSettings.isPending}>
-                {updateSettings.isPending ? "Saving..." : "Save Settings"}
-              </Button>
-            </div>
+            {!locked && (
+              <div className="flex justify-end">
+                <Button type="submit" disabled={updateSettings.isPending}>
+                  {updateSettings.isPending ? "Saving..." : "Save Settings"}
+                </Button>
+              </div>
+            )}
           </form>
         </Form>
 
