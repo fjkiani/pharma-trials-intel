@@ -14,7 +14,7 @@ import {
   SidebarRail,
   SidebarFooter
 } from "@/components/ui/sidebar";
-import { Settings, FileText, CheckCircle2, AlertCircle, XCircle, ClipboardList, Loader2, Eye, Radar, ShieldCheck } from "lucide-react";
+import { Settings, FileText, CheckCircle2, AlertCircle, XCircle, ClipboardList, Loader2, Eye, Radar, ShieldCheck, Cpu } from "lucide-react";
 
 interface IntegrationStatus {
   label: string;
@@ -149,6 +149,21 @@ export function LayoutShell({ children }: { children: React.ReactNode }) {
                       <Link href="/settings">
                         <Settings className="h-4 w-4" />
                         <span>Connection Setup</span>
+                      </Link>
+                    </SidebarMenuButton>
+                  </SidebarMenuItem>
+                </SidebarMenu>
+              </SidebarGroupContent>
+            </SidebarGroup>
+            <SidebarGroup>
+              <SidebarGroupLabel>Admin</SidebarGroupLabel>
+              <SidebarGroupContent>
+                <SidebarMenu>
+                  <SidebarMenuItem>
+                    <SidebarMenuButton asChild isActive={location.startsWith("/admin/rules")}>
+                      <Link href="/admin/rules">
+                        <Cpu className="h-4 w-4 text-slate-500" />
+                        <span>Kill-Chain Rules</span>
                       </Link>
                     </SidebarMenuButton>
                   </SidebarMenuItem>

@@ -10,6 +10,7 @@ import CompetitorWatch from "@/pages/competitor-watch";
 import StrikeCenter from "@/pages/strike-center";
 import TargetDossier from "@/pages/TargetDossier";
 import Governance from "@/pages/governance";
+import AdminRules from "@/pages/AdminRules";
 
 const queryClient = new QueryClient();
 
@@ -24,6 +25,7 @@ function Router() {
       <Route path="/reports" component={SponsorReports} />
       <Route path="/regulatory" component={RegulatoryTimeline} />
       <Route path="/settings" component={Settings} />
+      <Route path="/admin/rules" component={AdminRules} />
       <Route component={NotFound} />
     </Switch>
   );
