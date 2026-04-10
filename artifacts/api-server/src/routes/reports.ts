@@ -231,13 +231,22 @@ async function performSendToPi(
   }
 
   const { sendPiReviewEmail } = await import("../lib/gmail.js");
+  const { getSettings } = await import("../lib/settings.js");
+  const settings = await getSettings();
+
   const reportDate = new Date(report.generatedAt).toLocaleDateString("en-US", {
     month: "long",
     day: "numeric",
     year: "numeric",
   });
 
-  const composeUrl = await sendPiReviewEmail({ piEmail, docUrl: report.docUrl, reportDate });
+  const composeUrl = await sendPiReviewEmail({
+    piEmail,
+    docUrl: report.docUrl,
+    reportDate,
+    notionAeDbId: settings.notionAeLogDbId || undefined,
+    notionDeviationDbId: settings.notionDeviationLogDbId || undefined,
+  });
 
   const updated = await updateReport(reportId, {
     status: "PI Review",
