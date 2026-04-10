@@ -16,6 +16,8 @@ tags:
     description: Application settings
   - name: reports
     description: Sponsor report co-pilot
+  - name: strike
+    description: Tactical Strike Center — competitor alert feed
 paths:
   /healthz:
     get:
@@ -331,6 +333,40 @@ paths:
               schema:
                 $ref: "#/components/schemas/NagCheckResponse"
 
+  /strike/feed:
+    get:
+      operationId: getStrikeFeed
+      tags: [strike]
+      summary: Get alert feed
+      description: Returns all TriggeredAlert objects across all watched NCT IDs, sorted newest first
+      responses:
+        "200":
+          description: Alert feed
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/StrikeFeedResponse"
+
+  /internal/swarm-poll:
+    post:
+      operationId: swarmPoll
+      tags: [strike]
+      summary: Trigger swarm poll
+      description: Manually triggers the swarm ingestion engine for a list of NCT IDs
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/SwarmPollInput"
+      responses:
+        "200":
+          description: Poll result
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SwarmPollResponse"
+
 components:
   schemas:
     HealthStatus:
@@ -579,6 +615,66 @@ components:
       required:
         - nagsSent
         - errors
+
+    TriggeredAlert:
+      type: object
+      properties:
+        nctId:
+          type: string
+          description: NCT trial ID
+        detectedAt:
+          type: string
+          description: ISO 8601 timestamp when the alert was detected
+        headline:
+          type: string
+          description: Short bold summary of the anomaly
+        detail:
+          type: string
+          description: Expanded explanation of the anomaly
+        severity:
+          type: string
+          enum: [critical, high, medium, low]
+          description: Severity level of the alert
+      required:
+        - nctId
+        - detectedAt
+        - headline
+        - detail
+        - severity
+
+    StrikeFeedResponse:
+      type: object
+      properties:
+        alerts:
+          type: array
+          items:
+            $ref: "#/components/schemas/TriggeredAlert"
+      required:
+        - alerts
+
+    SwarmPollInput:
+      type: object
+      properties:
+        nctIds:
+          type: array
+          items:
+            type: string
+          description: List of NCT IDs to poll
+      required:
+        - nctIds
+
+    SwarmPollResponse:
+      type: object
+      properties:
+        alertsGenerated:
+          type: integer
+          description: Number of new alerts generated
+        nctIdsPolled:
+          type: integer
+          description: Number of NCT IDs polled
+      required:
+        - alertsGenerated
+        - nctIdsPolled
 
     ErrorResponse:
       type: object

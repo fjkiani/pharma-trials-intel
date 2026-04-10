@@ -179,6 +179,48 @@ export interface NagCheckResponse {
   errors: string[];
 }
 
+/**
+ * Severity level of the alert
+ */
+export type TriggeredAlertSeverity =
+  (typeof TriggeredAlertSeverity)[keyof typeof TriggeredAlertSeverity];
+
+export const TriggeredAlertSeverity = {
+  critical: "critical",
+  high: "high",
+  medium: "medium",
+  low: "low",
+} as const;
+
+export interface TriggeredAlert {
+  /** NCT trial ID */
+  nctId: string;
+  /** ISO 8601 timestamp when the alert was detected */
+  detectedAt: string;
+  /** Short bold summary of the anomaly */
+  headline: string;
+  /** Expanded explanation of the anomaly */
+  detail: string;
+  /** Severity level of the alert */
+  severity: TriggeredAlertSeverity;
+}
+
+export interface StrikeFeedResponse {
+  alerts: TriggeredAlert[];
+}
+
+export interface SwarmPollInput {
+  /** List of NCT IDs to poll */
+  nctIds: string[];
+}
+
+export interface SwarmPollResponse {
+  /** Number of new alerts generated */
+  alertsGenerated: number;
+  /** Number of NCT IDs polled */
+  nctIdsPolled: number;
+}
+
 export interface ErrorResponse {
   error: string;
 }

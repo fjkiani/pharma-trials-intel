@@ -30,6 +30,9 @@ import type {
   RunMonthlyReportInput,
   RunMonthlyReportResponse,
   SponsorReport,
+  StrikeFeedResponse,
+  SwarmPollInput,
+  SwarmPollResponse,
 } from "./api.schemas";
 
 import { customFetch } from "../custom-fetch";
@@ -1192,4 +1195,167 @@ export const useNagCheck = <
   TContext
 > => {
   return useMutation(getNagCheckMutationOptions(options));
+};
+
+/**
+ * Returns all TriggeredAlert objects across all watched NCT IDs, sorted newest first
+ * @summary Get alert feed
+ */
+export const getGetStrikeFeedUrl = () => {
+  return `/api/strike/feed`;
+};
+
+export const getStrikeFeed = async (
+  options?: RequestInit,
+): Promise<StrikeFeedResponse> => {
+  return customFetch<StrikeFeedResponse>(getGetStrikeFeedUrl(), {
+    ...options,
+    method: "GET",
+  });
+};
+
+export const getGetStrikeFeedQueryKey = () => {
+  return [`/api/strike/feed`] as const;
+};
+
+export const getGetStrikeFeedQueryOptions = <
+  TData = Awaited<ReturnType<typeof getStrikeFeed>>,
+  TError = ErrorType<unknown>,
+>(options?: {
+  query?: UseQueryOptions<
+    Awaited<ReturnType<typeof getStrikeFeed>>,
+    TError,
+    TData
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}) => {
+  const { query: queryOptions, request: requestOptions } = options ?? {};
+
+  const queryKey = queryOptions?.queryKey ?? getGetStrikeFeedQueryKey();
+
+  const queryFn: QueryFunction<Awaited<ReturnType<typeof getStrikeFeed>>> = ({
+    signal,
+  }) => getStrikeFeed({ signal, ...requestOptions });
+
+  return { queryKey, queryFn, ...queryOptions } as UseQueryOptions<
+    Awaited<ReturnType<typeof getStrikeFeed>>,
+    TError,
+    TData
+  > & { queryKey: QueryKey };
+};
+
+export type GetStrikeFeedQueryResult = NonNullable<
+  Awaited<ReturnType<typeof getStrikeFeed>>
+>;
+export type GetStrikeFeedQueryError = ErrorType<unknown>;
+
+/**
+ * @summary Get alert feed
+ */
+
+export function useGetStrikeFeed<
+  TData = Awaited<ReturnType<typeof getStrikeFeed>>,
+  TError = ErrorType<unknown>,
+>(options?: {
+  query?: UseQueryOptions<
+    Awaited<ReturnType<typeof getStrikeFeed>>,
+    TError,
+    TData
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+  const queryOptions = getGetStrikeFeedQueryOptions(options);
+
+  const query = useQuery(queryOptions) as UseQueryResult<TData, TError> & {
+    queryKey: QueryKey;
+  };
+
+  return { ...query, queryKey: queryOptions.queryKey };
+}
+
+/**
+ * Manually triggers the swarm ingestion engine for a list of NCT IDs
+ * @summary Trigger swarm poll
+ */
+export const getSwarmPollUrl = () => {
+  return `/api/internal/swarm-poll`;
+};
+
+export const swarmPoll = async (
+  swarmPollInput: SwarmPollInput,
+  options?: RequestInit,
+): Promise<SwarmPollResponse> => {
+  return customFetch<SwarmPollResponse>(getSwarmPollUrl(), {
+    ...options,
+    method: "POST",
+    headers: { "Content-Type": "application/json", ...options?.headers },
+    body: JSON.stringify(swarmPollInput),
+  });
+};
+
+export const getSwarmPollMutationOptions = <
+  TError = ErrorType<unknown>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof swarmPoll>>,
+    TError,
+    { data: BodyType<SwarmPollInput> },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationOptions<
+  Awaited<ReturnType<typeof swarmPoll>>,
+  TError,
+  { data: BodyType<SwarmPollInput> },
+  TContext
+> => {
+  const mutationKey = ["swarmPoll"];
+  const { mutation: mutationOptions, request: requestOptions } = options
+    ? options.mutation &&
+      "mutationKey" in options.mutation &&
+      options.mutation.mutationKey
+      ? options
+      : { ...options, mutation: { ...options.mutation, mutationKey } }
+    : { mutation: { mutationKey }, request: undefined };
+
+  const mutationFn: MutationFunction<
+    Awaited<ReturnType<typeof swarmPoll>>,
+    { data: BodyType<SwarmPollInput> }
+  > = (props) => {
+    const { data } = props ?? {};
+
+    return swarmPoll(data, requestOptions);
+  };
+
+  return { mutationFn, ...mutationOptions };
+};
+
+export type SwarmPollMutationResult = NonNullable<
+  Awaited<ReturnType<typeof swarmPoll>>
+>;
+export type SwarmPollMutationBody = BodyType<SwarmPollInput>;
+export type SwarmPollMutationError = ErrorType<unknown>;
+
+/**
+ * @summary Trigger swarm poll
+ */
+export const useSwarmPoll = <
+  TError = ErrorType<unknown>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof swarmPoll>>,
+    TError,
+    { data: BodyType<SwarmPollInput> },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationResult<
+  Awaited<ReturnType<typeof swarmPoll>>,
+  TError,
+  { data: BodyType<SwarmPollInput> },
+  TContext
+> => {
+  return useMutation(getSwarmPollMutationOptions(options));
 };

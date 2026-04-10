@@ -21,3 +21,8 @@ export * from "./runMonthlyReportInput";
 export * from "./runMonthlyReportResponse";
 export * from "./sponsorReport";
 export * from "./sponsorReportStatus";
+export * from "./strikeFeedResponse";
+export * from "./swarmPollInput";
+export * from "./swarmPollResponse";
+export * from "./triggeredAlert";
+export * from "./triggeredAlertSeverity";

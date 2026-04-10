@@ -8,6 +8,7 @@ import swarmRouter from "./swarm.js";
 import watchlistRouter from "./watchlist.js";
 import briefsRouter from "./briefs.js";
 import connectionsRouter from "./connections.js";
+import strikeRouter from "./strike.js";
 
 const router: IRouter = Router();
 
@@ -20,5 +21,6 @@ router.use(swarmRouter);
 router.use(watchlistRouter);
 router.use(briefsRouter);
 router.use(connectionsRouter);
+router.use(strikeRouter);
 
 export default router;

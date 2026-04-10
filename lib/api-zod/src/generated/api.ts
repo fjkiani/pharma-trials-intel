@@ -322,3 +322,36 @@ export const NagCheckResponse = zod.object({
   nagsSent: zod.number(),
   errors: zod.array(zod.string()),
 });
+
+/**
+ * Returns all TriggeredAlert objects across all watched NCT IDs, sorted newest first
+ * @summary Get alert feed
+ */
+export const GetStrikeFeedResponse = zod.object({
+  alerts: zod.array(
+    zod.object({
+      nctId: zod.string().describe("NCT trial ID"),
+      detectedAt: zod
+        .string()
+        .describe("ISO 8601 timestamp when the alert was detected"),
+      headline: zod.string().describe("Short bold summary of the anomaly"),
+      detail: zod.string().describe("Expanded explanation of the anomaly"),
+      severity: zod
+        .enum(["critical", "high", "medium", "low"])
+        .describe("Severity level of the alert"),
+    }),
+  ),
+});
+
+/**
+ * Manually triggers the swarm ingestion engine for a list of NCT IDs
+ * @summary Trigger swarm poll
+ */
+export const SwarmPollBody = zod.object({
+  nctIds: zod.array(zod.string()).describe("List of NCT IDs to poll"),
+});
+
+export const SwarmPollResponse = zod.object({
+  alertsGenerated: zod.number().describe("Number of new alerts generated"),
+  nctIdsPolled: zod.number().describe("Number of NCT IDs polled"),
+});
