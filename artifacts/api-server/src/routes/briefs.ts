@@ -89,6 +89,37 @@ async function listKillChainAlerts(): Promise<TriggeredAlert[]> {
   return all.sort((a, b) => new Date(b.detectedAt).getTime() - new Date(a.detectedAt).getTime());
 }
 
+// Resolves PMIDs for a trial: first checks stored snapshot, then fetches live.
+async function resolveTrialPmids(nctId: string, storedSnap: TrialSnapshot | null): Promise<string[]> {
+  interface RefEntry { pmid?: string; type?: string }
+  interface RefsModule { references?: RefEntry[] }
+
+  // Check stored data first
+  const storedRefs = (storedSnap?.protocolSection as Record<string, unknown> | undefined)
+    ?.referencesModule as RefsModule | undefined;
+
+  if (storedRefs?.references?.length) {
+    return storedRefs.references
+      .map(r => r.pmid)
+      .filter((p): p is string => !!p);
+  }
+
+  // Live fetch — only request ReferencesModule to keep it fast
+  try {
+    const res = await fetch(
+      `https://clinicaltrials.gov/api/v2/studies/${nctId}?fields=ReferencesModule`,
+      { signal: AbortSignal.timeout(8_000) },
+    );
+    if (!res.ok) return [];
+    const data = (await res.json()) as { protocolSection?: { referencesModule?: RefsModule } };
+    return (data.protocolSection?.referencesModule?.references ?? [])
+      .map(r => r.pmid)
+      .filter((p): p is string => !!p);
+  } catch {
+    return [];
+  }
+}
+
 const router = Router();
 
 class ApiError extends Error {
@@ -280,8 +311,11 @@ router.post(["/briefs", "/internal/draft-memo"], async (_req, res): Promise<void
     }
 
     const trialMeta = new Map<string, TrialMetaRow>();
+    const trialSnaps = new Map<string, TrialSnapshot | null>();
+
     for (const nctId of uniqueNctIds) {
       const snap = await dbGet<TrialSnapshot>(`trial:current:${nctId}`);
+      trialSnaps.set(nctId, snap);
       const ps = snap?.protocolSection;
       trialMeta.set(nctId, {
         nctId,
@@ -293,6 +327,15 @@ router.post(["/briefs", "/internal/draft-memo"], async (_req, res): Promise<void
         primaryCompletion: ps?.statusModule?.primaryCompletionDateStruct?.date ?? "—",
       });
     }
+
+    // Resolve PMIDs for all trials in parallel (live fetch where not cached)
+    const trialPmids = new Map<string, string[]>();
+    await Promise.all(
+      uniqueNctIds.map(async (nctId) => {
+        const pmids = await resolveTrialPmids(nctId, trialSnaps.get(nctId) ?? null);
+        trialPmids.set(nctId, pmids);
+      }),
+    );
 
     // ── 2. Create the Google Drive file (get docId / URL early) ──────────────
 
@@ -333,6 +376,7 @@ router.post(["/briefs", "/internal/draft-memo"], async (_req, res): Promise<void
 
     const formattedAlerts = sortedAlerts.map((alert) => {
       const meta = trialMeta.get(alert.nctId);
+      const pmids = trialPmids.get(alert.nctId) ?? [];
       return formatIntelligencePayload(
         {
           nctId: alert.nctId,
@@ -350,6 +394,7 @@ router.post(["/briefs", "/internal/draft-memo"], async (_req, res): Promise<void
           primaryCompletion: meta?.primaryCompletion ?? "—",
           phase: meta?.phase ?? "N/A",
         },
+        pmids,
       );
     });
 
