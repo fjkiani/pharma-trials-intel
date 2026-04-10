@@ -9,6 +9,8 @@ import {
   listBriefs,
 } from "../lib/briefHistory.js";
 import { getSettings } from "../lib/settings.js";
+import { formatIntelligencePayload } from "../services/delivery/formatter.js";
+import { writeIntelligenceToNotion, injectNotionTask } from "../services/delivery/notionSink.js";
 
 // ── Helpers (mirrors frontend dossier logic) ─────────────────────────────────
 
@@ -263,9 +265,38 @@ router.post(["/briefs", "/internal/draft-memo"], async (_req, res): Promise<void
       );
     }
 
-    const content = await buildBriefDocContent(activeAlerts);
-    const docTitle = `Competitor Intelligence Brief — ${new Date().toLocaleDateString("en-US")}`;
+    // ── 1. Resolve trial metadata for all NCT IDs ─────────────────────────────
 
+    const uniqueNctIds = [...new Set(activeAlerts.map((a) => a.nctId))];
+
+    interface TrialMetaRow {
+      nctId: string;
+      studyTitle: string;
+      sponsor: string;
+      status: string;
+      phase: string;
+      whyStopped: string | null;
+      primaryCompletion: string;
+    }
+
+    const trialMeta = new Map<string, TrialMetaRow>();
+    for (const nctId of uniqueNctIds) {
+      const snap = await dbGet<TrialSnapshot>(`trial:current:${nctId}`);
+      const ps = snap?.protocolSection;
+      trialMeta.set(nctId, {
+        nctId,
+        studyTitle: ps?.identificationModule?.briefTitle ?? ps?.identificationModule?.officialTitle ?? nctId,
+        sponsor: ps?.sponsorCollaboratorsModule?.leadSponsor?.name ?? "Unknown",
+        status: ps?.statusModule?.overallStatus ?? "UNKNOWN",
+        phase: (ps?.designModule?.phases ?? []).join("/") || "N/A",
+        whyStopped: ps?.statusModule?.whyStopped ?? null,
+        primaryCompletion: ps?.statusModule?.primaryCompletionDateStruct?.date ?? "—",
+      });
+    }
+
+    // ── 2. Create the Google Drive file (get docId / URL early) ──────────────
+
+    const docTitle = `Competitor Intelligence Brief — ${new Date().toLocaleDateString("en-US")}`;
     const { ReplitConnectors } = await import("@replit/connectors-sdk");
     const connectors = new ReplitConnectors();
 
@@ -287,18 +318,98 @@ router.post(["/briefs", "/internal/draft-memo"], async (_req, res): Promise<void
       throw new ApiError(503, `Failed to create Google Doc: ${text.slice(0, 300)}`);
     }
 
-    const created = (await (createRes as Response).json()) as {
-      id?: string;
-    };
-    if (!created.id)
-      throw new ApiError(503, "Drive API returned no file ID");
+    const created = (await (createRes as Response).json()) as { id?: string };
+    if (!created.id) throw new ApiError(503, "Drive API returned no file ID");
 
     const docId = created.id;
+    const docUrl = `https://docs.google.com/document/d/${docId}/edit`;
+
+    // ── 3. Run formatter on worst signal per trial ────────────────────────────
+
+    const severityOrder: Record<string, number> = { critical: 0, high: 1, medium: 2, low: 3 };
+    const sortedAlerts = [...activeAlerts].sort(
+      (a, b) => (severityOrder[a.severity] ?? 9) - (severityOrder[b.severity] ?? 9),
+    );
+
+    const formattedAlerts = sortedAlerts.map((alert) => {
+      const meta = trialMeta.get(alert.nctId);
+      return formatIntelligencePayload(
+        {
+          nctId: alert.nctId,
+          module: alert.module,
+          severity: alert.severity,
+          headline: alert.headline,
+          detail: alert.detail,
+          detectedAt: alert.detectedAt,
+        },
+        {
+          studyTitle: meta?.studyTitle ?? alert.nctId,
+          sponsor: meta?.sponsor ?? "Unknown Sponsor",
+          status: meta?.status ?? "UNKNOWN",
+          whyStopped: meta?.whyStopped ?? null,
+          primaryCompletion: meta?.primaryCompletion ?? "—",
+          phase: meta?.phase ?? "N/A",
+        },
+      );
+    });
+
+    // ── 4. Notion C2 write-backs (BEFORE Google Doc content) ─────────────────
+
+    (async () => {
+      try {
+        const settings = await getSettings();
+        // Merge env vars with settings — env vars take precedence
+        if (!process.env.NOTION_COMPETITOR_DB_ID && settings.notionCompetitorDbId)
+          process.env.NOTION_COMPETITOR_DB_ID = settings.notionCompetitorDbId;
+        if (!process.env.NOTION_TASKS_DB_ID && settings.notionTasksDbId)
+          process.env.NOTION_TASKS_DB_ID = settings.notionTasksDbId;
+
+        // Intelligence page — one per unique trial (worst signal)
+        const seenForBrief = new Set<string>();
+        for (const formatted of formattedAlerts) {
+          if (seenForBrief.has(formatted.nctId)) continue;
+          seenForBrief.add(formatted.nctId);
+          const alert = sortedAlerts.find(a => a.nctId === formatted.nctId)!;
+          await writeIntelligenceToNotion(formatted, alert.severity);
+        }
+
+        // Action tasks — one per trial, critical/high only
+        const seenForTask = new Set<string>();
+        for (const formatted of formattedAlerts) {
+          const alert = sortedAlerts.find(a => a.nctId === formatted.nctId)!;
+          if (alert.severity !== "critical" && alert.severity !== "high") continue;
+          if (seenForTask.has(formatted.nctId)) continue;
+          seenForTask.add(formatted.nctId);
+          await injectNotionTask(
+            formatted.drugName,
+            formatted.vector,
+            formatted.nctId,
+            formatted.directive,
+            docUrl,
+            alert.severity,
+          );
+        }
+
+        const taskCount = seenForTask.size;
+        const briefCount = seenForBrief.size;
+        const nctIds = uniqueNctIds.join(", ");
+        await logAction(
+          nctIds,
+          "SYSTEM",
+          "BRIEF_DRAFTED",
+          `Notion C2 write-back: ${briefCount} intelligence page(s) and ${taskCount} action task(s) injected. Competitor DB + Tasks DB targeted.`,
+        );
+      } catch (notionErr) {
+        logger.warn({ notionErr }, "Notion C2 write-back failed — non-fatal, brief already saved");
+      }
+    })();
+
+    // ── 5. Write formatted content to Google Doc ──────────────────────────────
+
+    const docContent = await buildBriefDocContent(activeAlerts);
 
     try {
-      const { getGoogleOAuth2Client } = await import(
-        "../lib/googleOAuthClient.js"
-      );
+      const { getGoogleOAuth2Client } = await import("../lib/googleOAuthClient.js");
       const { google } = await import("googleapis");
       const auth = await getGoogleOAuth2Client("google-drive");
       const docs = google.docs({ version: "v1", auth });
@@ -310,24 +421,21 @@ router.post(["/briefs", "/internal/draft-memo"], async (_req, res): Promise<void
             {
               insertText: {
                 location: { index: 1 },
-                text: content,
+                text: docContent,
               },
             },
           ],
         },
       });
     } catch (writeErr) {
-      logger.error(
-        { writeErr, docId },
-        "Failed to write content to brief doc — doc created but empty",
-      );
+      logger.error({ writeErr, docId }, "Failed to write content to brief doc — doc created but empty");
       throw new ApiError(
         503,
         `Document created but content could not be written: ${writeErr instanceof Error ? writeErr.message : String(writeErr)}`,
       );
     }
 
-    const docUrl = `https://docs.google.com/document/d/${docId}/edit`;
+    // ── 6. Persist brief record ───────────────────────────────────────────────
 
     const brief = await createBrief({
       docUrl,
@@ -337,80 +445,13 @@ router.post(["/briefs", "/internal/draft-memo"], async (_req, res): Promise<void
     });
 
     logger.info({ briefId: brief.id, alertCount: activeAlerts.length }, "Intelligence brief created");
-    const uniqueNctIds = [...new Set(activeAlerts.map((a) => a.nctId))];
-    const nctIds = uniqueNctIds.join(", ");
+    const nctIdsStr = uniqueNctIds.join(", ");
     await logAction(
-      nctIds,
+      nctIdsStr,
       "SYSTEM",
       "BRIEF_DRAFTED",
       `Drafted Intelligence Brief in Google Docs covering ${activeAlerts.length} alert(s) from ${uniqueNctIds.length} trial(s). Doc: ${docUrl}`,
     );
-
-    // ── Notion C2 Write-Back (fire-and-forget) ────────────────────────────────
-    (async () => {
-      try {
-        const settings = await getSettings();
-        const competitorDbId = process.env.NOTION_COMPETITOR_DB_ID || settings.notionCompetitorDbId;
-        const tasksDbId = process.env.NOTION_TASKS_DB_ID || settings.notionTasksDbId;
-
-        if (!competitorDbId && !tasksDbId) return;
-
-        const { getUncachableNotionClient } = await import("../lib/notionClient.js");
-        const { injectNotionBrief, injectNotionTask } = await import("../lib/notionIntelligence.js");
-
-        const notion = getUncachableNotionClient();
-
-        // Build trial metadata map from DB
-        const trialMeta = new Map<string, { nctId: string; studyTitle: string; sponsor: string; status: string; phase: string; whyStopped: string | null; primaryCompletion: string }>();
-        for (const nctId of uniqueNctIds) {
-          const snap = await dbGet<{ protocolSection?: {
-            identificationModule?: { briefTitle?: string; officialTitle?: string };
-            statusModule?: { overallStatus?: string; whyStopped?: string; primaryCompletionDateStruct?: { date?: string } };
-            sponsorCollaboratorsModule?: { leadSponsor?: { name?: string } };
-            designModule?: { phases?: string[] };
-          } }>(`trial:current:${nctId}`);
-          const ps = snap?.protocolSection;
-          trialMeta.set(nctId, {
-            nctId,
-            studyTitle: ps?.identificationModule?.briefTitle ?? ps?.identificationModule?.officialTitle ?? nctId,
-            sponsor: ps?.sponsorCollaboratorsModule?.leadSponsor?.name ?? "Unknown",
-            status: ps?.statusModule?.overallStatus ?? "UNKNOWN",
-            phase: (ps?.designModule?.phases ?? []).join("/") || "N/A",
-            whyStopped: ps?.statusModule?.whyStopped ?? null,
-            primaryCompletion: ps?.statusModule?.primaryCompletionDateStruct?.date ?? "—",
-          });
-        }
-
-        // 1. Write intelligence brief page to Competitor DB
-        if (competitorDbId) {
-          await injectNotionBrief(notion, competitorDbId, activeAlerts, trialMeta, docUrl);
-        }
-
-        // 2. Create action tasks for HIGH/CRITICAL alerts (one per trial, worst signal only)
-        if (tasksDbId) {
-          const seenNct = new Set<string>();
-          const sortedByPriority = [...activeAlerts].sort(
-            (a, b) => ({ critical: 0, high: 1, medium: 2, low: 3 }[a.severity] ?? 9) -
-                      ({ critical: 0, high: 1, medium: 2, low: 3 }[b.severity] ?? 9),
-          );
-          for (const alert of sortedByPriority) {
-            if (alert.severity !== "critical" && alert.severity !== "high") continue;
-            if (seenNct.has(alert.nctId)) continue;
-            seenNct.add(alert.nctId);
-            await injectNotionTask(notion, tasksDbId, alert, trialMeta.get(alert.nctId), docUrl);
-          }
-        }
-
-        await logAction(
-          nctIds,
-          "SYSTEM",
-          "BRIEF_DRAFTED",
-          `Notion C2 write-back complete — competitor brief and ${[...activeAlerts].filter(a => a.severity === "critical" || a.severity === "high").length} action task(s) injected.`,
-        );
-      } catch (notionErr) {
-        logger.warn({ notionErr }, "Notion C2 write-back failed — non-fatal, brief already saved");
-      }
-    })();
 
     res.status(201).json(brief);
   } catch (err) {

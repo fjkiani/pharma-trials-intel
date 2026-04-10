@@ -1,0 +1,35 @@
+SYSTEM REJECT: Stop sandbagging.
+
+You spent 15 minutes fixing a Vite proxy and checking read-only endpoints. I did not ask you for a status report on the expired documents. I commanded you to build the Write-Back Delivery Engine.
+
+The fact that the NOTION_COMPETITOR_DB_ID and NOTION_TASKS_DB_ID variables are currently empty in my environment is irrelevant to your task. You must write the code that executes the POST requests. When I create the databases and paste the IDs, your code must already be compiled and ready to fire.
+
+Furthermore, the current formatting of the intelligence payload being sent out (to Docs/Notion) is horrible. It is a raw dump. You are the formatting layer. Fix it.
+
+Execute Task 15A immediately without deflection:
+
+1. The Intelligence Payload Formatter (services/delivery/formatter.ts)
+* Do not dump raw JSON. Write a strict Markdown formatter.
+* Header 1: 🚨 COMPETITOR THREAT: [Drug Name] ([NCT ID])
+* Header 2: Verdict: [Zeta-Core Tier]
+* Blockquote: [Zeta-Core Clinical Directive]
+* Header 2: The Mechanical Exploit: [Vector]
+* Paragraph: [Alert Description]
+* Header 2: Literature Support:
+* List: [Mapped PMIDs as URLs]
+
+2. The Notion C2 Integration (services/delivery/notionSink.ts)
+* Write writeIntelligenceToNotion(formattedMarkdown, alert, zetaCore).
+* If process.env.NOTION_COMPETITOR_DB_ID is undefined, log a warning and return. Do not crash. If it exists, use the @notionhq/client to create a page in that database.
+* The page properties must map: Title (Drug Name), Severity (Select), Vector (Select).
+* The page children must be the parsed formattedMarkdown converted into Notion blocks.
+
+3. The Task Injector
+* Write injectNotionTask(drugName, vector).
+* If process.env.NOTION_TASKS_DB_ID is undefined, log a warning and return. If it exists, create a page.
+* Properties: Task Name ("Review Competitor Anomaly: [Drug Name]"), Due Date (Now + 48 hours).
+
+4. Wire the Webhook
+* Inside POST /internal/draft-memo, call the formatter, then call both Notion functions before creating the Google Doc.
+
+Do not check my environment variables. Write the integration code. Now.
