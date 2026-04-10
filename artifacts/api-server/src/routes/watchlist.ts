@@ -217,6 +217,43 @@ router.post("/watchlist/alerts/:id/dismiss", async (req, res): Promise<void> => 
   }
 });
 
+// POST /watchlist/add — body-based alias for POST /watchlist
+router.post("/watchlist/add", async (req, res): Promise<void> => {
+  try {
+    const { nctId } = (req.body ?? {}) as { nctId?: string };
+    if (!nctId || typeof nctId !== "string") {
+      throw new ApiError(400, "nctId is required");
+    }
+    const normalized = nctId.trim().toUpperCase();
+    if (!/^NCT\d{8}$/.test(normalized)) {
+      throw new ApiError(400, "Invalid NCT number format. Expected: NCT followed by 8 digits");
+    }
+    const trialData = await fetchTrial(normalized);
+    if (!trialData) {
+      throw new ApiError(404, `Trial ${normalized} not found on ClinicalTrials.gov`);
+    }
+    const updated = await addToWatchlist(normalized);
+    await saveSnapshot(normalized, trialData);
+    res.json({ watchlist: updated, trial: trialData });
+  } catch (err) {
+    handleError(err, res);
+  }
+});
+
+// DELETE /watchlist/remove — body-based removal (alternative to DELETE /watchlist/:nct)
+router.delete("/watchlist/remove", async (req, res): Promise<void> => {
+  try {
+    const { nctId } = (req.body ?? {}) as { nctId?: string };
+    if (!nctId || typeof nctId !== "string") {
+      throw new ApiError(400, "nctId is required");
+    }
+    const updated = await removeFromWatchlist(nctId.trim().toUpperCase());
+    res.json({ watchlist: updated });
+  } catch (err) {
+    handleError(err, res);
+  }
+});
+
 router.post("/watchlist/poll", async (_req, res): Promise<void> => {
   try {
     const result = await runPoll();

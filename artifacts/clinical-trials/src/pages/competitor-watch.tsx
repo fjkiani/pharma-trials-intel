@@ -276,11 +276,21 @@ export default function CompetitorWatch() {
         method: "POST",
         body: JSON.stringify({ nctId }),
       }),
-    onSuccess: (data) => {
+    onSuccess: async (data, nctId) => {
       const title = data.trial?.studyTitle ?? nctInput;
-      toast({ title: "Trial Added", description: `"${title}" is now being watched.` });
+      toast({ title: "Trial Added", description: `"${title}" is now being watched. Seeding Signal Engine…` });
       setNctInput("");
       queryClient.invalidateQueries({ queryKey: ["watchlist"] });
+      // Immediately seed the Signal Engine baseline for the new trial
+      try {
+        await apiFetch<{ processed: number; alertsGenerated: number }>("/internal/swarm-poll", {
+          method: "POST",
+          body: JSON.stringify({ nctIds: [nctId] }),
+        });
+        queryClient.invalidateQueries({ queryKey: ["strike-feed"] });
+      } catch {
+        // Non-fatal — baseline will seed on next scheduled poll
+      }
     },
     onError: (err: unknown) => {
       const msg = err instanceof Error ? err.message : "Unknown error";
@@ -301,18 +311,26 @@ export default function CompetitorWatch() {
   });
 
   const pollNow = useMutation({
-    mutationFn: () => apiFetch<{ checked: number; alertsCreated: number; errors: string[] }>("/watchlist/poll", { method: "POST" }),
+    mutationFn: () => {
+      const nctIds = (watchlistQuery.data ?? []).map((w) => w.nctId);
+      if (nctIds.length === 0) throw new Error("No trials on your watchlist yet. Add a trial first.");
+      return apiFetch<{ processed: number; failed: number; alertsGenerated: number }>("/internal/swarm-poll", {
+        method: "POST",
+        body: JSON.stringify({ nctIds }),
+      });
+    },
     onSuccess: (data) => {
       toast({
-        title: "Poll Complete",
-        description: `Checked ${data.checked} trial${data.checked !== 1 ? "s" : ""}. ${data.alertsCreated} new alert${data.alertsCreated !== 1 ? "s" : ""} detected.${data.errors.length > 0 ? ` ${data.errors.length} error(s) — check logs.` : ""}`,
+        title: "Signal Engine Complete",
+        description: `Scanned ${data.processed} trial${data.processed !== 1 ? "s" : ""}. ${data.alertsGenerated} new signal${data.alertsGenerated !== 1 ? "s" : ""} detected.`,
       });
       queryClient.invalidateQueries({ queryKey: ["watchlist"] });
       queryClient.invalidateQueries({ queryKey: ["watchlist-alerts"] });
+      queryClient.invalidateQueries({ queryKey: ["strike-feed"] });
     },
     onError: (err: unknown) => {
       const msg = err instanceof Error ? err.message : "Unknown error";
-      toast({ title: "Poll Failed", description: msg, variant: "destructive" });
+      toast({ title: "Signal Engine Failed", description: msg, variant: "destructive" });
     },
   });
 
