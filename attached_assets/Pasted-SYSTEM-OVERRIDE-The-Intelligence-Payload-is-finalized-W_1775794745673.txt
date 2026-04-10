@@ -1,0 +1,37 @@
+SYSTEM OVERRIDE: The Intelligence Payload is finalized. We must now build the detailed view for each competitor trial.
+
+Task 11: The Target Dossier UI (/strike-center/:nctId)
+
+What & Why:
+The StrikeFeed shows high-level alerts. When Susan clicks a card, she must be routed to a dedicated slug that proves why the alert fired. This page must render the mechanical truth (the JSON diff) and the biological truth (the Zeta-Core synthesis).
+
+Done looks like:
+
+Create a new dynamic React route: /strike-center/:nctId.
+
+Create pages/TargetDossier.tsx.
+
+Fetch the strike:intelligence:{nctId} object from the GET /api/strike/feed/:nctId endpoint (create this endpoint if it doesn't exist).
+4. The UI Layout (Three Panels):
+Panel A: The Executive Brief (Top)
+* Header: NCT ID and drugName.
+* Severity Badge: Render the alert.severity prominently.
+* The Verdict: Display the Zeta-Core evidenceTier (e.g., INSUFFICIENT, SUPPORTED) in a high-contrast pill.
+* The Directive: Render the Zeta-Core clinicalDirective and cynicalSummary in a clean, readable text block.
+Panel B: The Smoking Gun (Middle)
+* Title: "Mechanical Exploit Detected: alert.vector"
+* Description: Render alert.description.
+* The Diff Viewer: Read the alert.evidence object. If the vector is GOALPOST_SHIFT, render a visual comparison:
+Row 1: Primary Endpoint (PFS) | Previous: previousPfsTimeFrameString (Strikethrough) ➔ Current: currentPfsTimeFrameString (Highlight).
+
+Row 2: Secondary Endpoint (OS) | Previous: previousOsTimeFrameString (Strikethrough) ➔ Current: currentOsTimeFrameString (Highlight).
+* Build this Diff Viewer to dynamically handle other vectors (e.g., for TOXICITY_CAMOUFLAGE, show the matchedTermStrings).
+Panel C: The Biological Verification (Bottom)
+* Title: "Literature Base (zetaCore.articlesRetrieved papers analyzed)"
+* Content: Map over the zetaCore.articles array.
+* For each article render: Title, Journal, Year. Make the title a clickable link to https://pubmed.ncbi.nlm.nih.gov/${pmid}/.
+* If zetaCore.knowledgeGaps or safetySignals exist, render them as warning bullet points above the article list.
+5. Navigation
+* Ensure every card in the StrikeFeed component (Task 9) wraps in a Link pointing to this new /strike-center/:nctId route.
+* Add a "← Back to Radar" button at the top of the Dossier.
+Build this React view. The data structure is guaranteed. Do not mock the data; parse the live strike:intelligence:{nctId} payload

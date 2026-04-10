@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { Link } from "wouter";
 import { LayoutShell } from "@/components/layout-shell";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -112,31 +113,36 @@ function AnomalyCard({ item }: { item: StrikeFeedItem }) {
   const cfg = severityConfig(item.severity);
 
   return (
-    <div className={`rounded-lg border ${cfg.border} ${cfg.bg} p-3 space-y-2`}>
-      <div className="flex items-start justify-between gap-2">
-        <div className="flex items-center gap-2 min-w-0">
-          <span className={`h-2 w-2 rounded-full shrink-0 mt-1 ${cfg.dot}`} />
-          <div className="min-w-0">
-            <div className="flex items-center gap-1.5 flex-wrap">
-              <span className="font-mono text-xs font-bold text-foreground">{item.nctId}</span>
-              <Badge className={`text-[10px] px-1.5 py-0 gap-1 ${cfg.badge}`}>
-                {cfg.icon}
-                {cfg.label}
-              </Badge>
-              <Badge variant="outline" className="text-[10px] px-1.5 py-0 font-mono">
-                {item.module}
-              </Badge>
+    <Link href={`/strike-center/${item.nctId}`}>
+      <div className={`rounded-lg border ${cfg.border} ${cfg.bg} p-3 space-y-2 cursor-pointer hover:shadow-md transition-shadow`}>
+        <div className="flex items-start justify-between gap-2">
+          <div className="flex items-center gap-2 min-w-0">
+            <span className={`h-2 w-2 rounded-full shrink-0 mt-1 ${cfg.dot}`} />
+            <div className="min-w-0">
+              <div className="flex items-center gap-1.5 flex-wrap">
+                <span className="font-mono text-xs font-bold text-foreground">{item.nctId}</span>
+                <Badge className={`text-[10px] px-1.5 py-0 gap-1 ${cfg.badge}`}>
+                  {cfg.icon}
+                  {cfg.label}
+                </Badge>
+                <Badge variant="outline" className="text-[10px] px-1.5 py-0 font-mono">
+                  {item.module}
+                </Badge>
+              </div>
             </div>
           </div>
+          <div className="flex items-center gap-1.5 shrink-0">
+            <span className="text-[10px] text-muted-foreground mt-0.5">
+              {format(parseISO(item.detectedAt), "MMM d, h:mm a")}
+            </span>
+            <span className="text-[10px] text-teal-600 font-medium">View →</span>
+          </div>
         </div>
-        <span className="text-[10px] text-muted-foreground shrink-0 mt-0.5">
-          {format(parseISO(item.detectedAt), "MMM d, h:mm a")}
-        </span>
-      </div>
 
-      <p className="text-xs font-medium text-foreground leading-snug">{item.headline}</p>
-      <p className="text-xs text-muted-foreground leading-relaxed">{item.detail}</p>
-    </div>
+        <p className="text-xs font-medium text-foreground leading-snug">{item.headline}</p>
+        <p className="text-xs text-muted-foreground leading-relaxed">{item.detail}</p>
+      </div>
+    </Link>
   );
 }
 

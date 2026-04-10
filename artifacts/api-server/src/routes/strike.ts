@@ -51,6 +51,89 @@ export interface TriggeredAlert {
   severity: "critical" | "high" | "medium" | "low";
 }
 
+// GET /strike/feed/:nctId — full dossier for one trial
+router.get("/strike/feed/:nctId", async (req, res): Promise<void> => {
+  const { nctId } = req.params;
+  try {
+    const alerts = (await dbGet<TriggeredAlert[]>(`trial:alerts:${nctId}`)) ?? [];
+
+    // Pull raw trial snapshot for enriched context
+    const current = await dbGet<Record<string, unknown>>(`trial:current:${nctId}`);
+    const baseline = await dbGet<Record<string, unknown>>(`trial:baseline:${nctId}`);
+
+    let trialMeta: Record<string, unknown> = {};
+    if (current) {
+      const proto = current.protocolSection as Record<string, unknown> | undefined;
+      const idMod = proto?.identificationModule as Record<string, unknown> | undefined;
+      const statusMod = proto?.statusModule as Record<string, unknown> | undefined;
+      const designMod = proto?.designModule as Record<string, unknown> | undefined;
+      const outcomesMod = proto?.outcomesModule as Record<string, unknown> | undefined;
+      const descMod = proto?.descriptionModule as Record<string, unknown> | undefined;
+      const condsMod = proto?.conditionsModule as Record<string, unknown> | undefined;
+      const sponsorMod = proto?.sponsorCollaboratorsModule as Record<string, unknown> | undefined;
+
+      const enrollInfo = designMod?.enrollmentInfo as Record<string, unknown> | undefined;
+      const primaryComp = statusMod?.primaryCompletionDateStruct as Record<string, unknown> | undefined;
+      const phases = designMod?.phases as string[] | undefined;
+
+      const primaryOutcomes = (outcomesMod?.primaryOutcomes as Array<Record<string, unknown>> | undefined) ?? [];
+      const secondaryOutcomes = (outcomesMod?.secondaryOutcomes as Array<Record<string, unknown>> | undefined) ?? [];
+      const conditions = (condsMod?.conditions as string[] | undefined) ?? [];
+      const leadSponsor = sponsorMod?.leadSponsor as Record<string, unknown> | undefined;
+
+      // Baseline values for diff display
+      const bProto = baseline?.protocolSection as Record<string, unknown> | undefined;
+      const bStatus = bProto?.statusModule as Record<string, unknown> | undefined;
+      const bDesign = bProto?.designModule as Record<string, unknown> | undefined;
+      const bEnroll = bDesign?.enrollmentInfo as Record<string, unknown> | undefined;
+      const bPrimaryComp = bStatus?.primaryCompletionDateStruct as Record<string, unknown> | undefined;
+
+      trialMeta = {
+        nctId: idMod?.nctId ?? nctId,
+        title: (idMod?.briefTitle ?? idMod?.officialTitle ?? nctId) as string,
+        overallStatus: statusMod?.overallStatus ?? "UNKNOWN",
+        whyStopped: statusMod?.whyStopped ?? null,
+        primaryCompletionDate: primaryComp?.date ?? null,
+        enrollmentCount: enrollInfo?.count ?? null,
+        enrollmentType: enrollInfo?.type ?? null,
+        phase: Array.isArray(phases) ? phases.join(", ") : "N/A",
+        hasResults: current.hasResults ?? false,
+        conditions,
+        leadSponsor: leadSponsor?.name ?? "Unknown",
+        briefSummary: descMod?.briefSummary ?? null,
+        primaryOutcomes: primaryOutcomes.map((o) => ({
+          measure: o.measure ?? "",
+          timeFrame: o.timeFrame ?? "",
+          description: o.description ?? null,
+        })),
+        secondaryOutcomes: secondaryOutcomes.slice(0, 5).map((o) => ({
+          measure: o.measure ?? "",
+          timeFrame: o.timeFrame ?? "",
+        })),
+        fetchedAt: current.fetchedAt ?? null,
+        // Baseline values for diff comparisons
+        baseline: baseline ? {
+          overallStatus: bStatus?.overallStatus ?? null,
+          primaryCompletionDate: bPrimaryComp?.date ?? null,
+          enrollmentCount: bEnroll?.count ?? null,
+        } : null,
+      };
+    }
+
+    res.json({
+      nctId,
+      alerts: alerts.sort((a, b) => {
+        const order: Record<string, number> = { critical: 0, high: 1, medium: 2, low: 3 };
+        return (order[a.severity] ?? 3) - (order[b.severity] ?? 3);
+      }),
+      trial: trialMeta,
+    });
+  } catch (err) {
+    logger.error({ err, nctId }, "Failed to fetch dossier");
+    res.status(500).json({ error: "Failed to fetch dossier" });
+  }
+});
+
 // GET /strike/feed
 router.get("/strike/feed", async (_req, res): Promise<void> => {
   try {

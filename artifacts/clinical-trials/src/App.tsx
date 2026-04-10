@@ -8,6 +8,7 @@ import Settings from "@/pages/settings";
 import SponsorReports from "@/pages/reports";
 import CompetitorWatch from "@/pages/competitor-watch";
 import StrikeCenter from "@/pages/strike-center";
+import TargetDossier from "@/pages/TargetDossier";
 import Governance from "@/pages/governance";
 
 const queryClient = new QueryClient();
@@ -17,6 +18,7 @@ function Router() {
     <Switch>
       <Route path="/" component={() => <Redirect to="/strike-center" />} />
       <Route path="/strike-center" component={StrikeCenter} />
+      <Route path="/strike-center/:nctId" component={TargetDossier} />
       <Route path="/governance" component={Governance} />
       <Route path="/competitor-watch" component={CompetitorWatch} />
       <Route path="/reports" component={SponsorReports} />
