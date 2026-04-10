@@ -144,19 +144,18 @@ router.post("/connections/discover", async (_req, res): Promise<void> => {
     const cal = await getUncachableGoogleCalendarClient();
 
     const calListRes = await cal.calendarList.list({ maxResults: 20 });
-    for (const c of calListRes.data.items ?? []) {
-      if (c.id && c.summary) {
-        results.push({
-          name: c.summary,
-          type: "google-calendar",
-          connector: "google-calendar",
-          id: c.id,
-          label: `Calendar: ${c.summary}`,
-        });
-      }
-    }
 
+    // Only surface the primary calendar — skip shared, family, holiday, and classroom calendars
     const primaryCalendar = calListRes.data.items?.find((c) => c.primary) ?? calListRes.data.items?.[0];
+    if (primaryCalendar?.id && primaryCalendar.summary) {
+      results.push({
+        name: primaryCalendar.summary,
+        type: "google-calendar",
+        connector: "google-calendar",
+        id: primaryCalendar.id,
+        label: `Calendar: ${primaryCalendar.summary}`,
+      });
+    }
     if (primaryCalendar?.id) {
       const now = new Date().toISOString();
       const eventsRes = await cal.events.list({
