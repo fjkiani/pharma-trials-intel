@@ -229,6 +229,7 @@ async function buildClient(): Promise<SimpleNotionClient> {
       const res = await connectors.proxy("notion", "/v1/pages", {
         method: "POST",
         body,
+        headers: { "Content-Type": "application/json" },
       });
 
       if (!res.ok) {
@@ -256,6 +257,7 @@ async function buildClient(): Promise<SimpleNotionClient> {
           await connectors.proxy("notion", `/v1/blocks/${toUuid(pageId)}/children`, {
             method: "PATCH",
             body: JSON.stringify({ children: chunk }),
+            headers: { "Content-Type": "application/json" },
           });
         }
       }
