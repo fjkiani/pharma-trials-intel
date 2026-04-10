@@ -118,10 +118,10 @@ export default function AdminRules() {
       <div className="max-w-4xl mx-auto space-y-10">
         <div className="space-y-1">
           <h1 className="text-3xl font-bold tracking-tight">
-            Active Exploitation Rules
+            Signal Engine Configuration
           </h1>
           <p className="text-muted-foreground text-base">
-            The deterministic logic engine currently monitoring the Swarm.
+            The deterministic rule set currently monitoring competitor trials across the watchlist.
           </p>
         </div>
 

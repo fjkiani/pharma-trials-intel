@@ -163,7 +163,7 @@ export function LayoutShell({ children }: { children: React.ReactNode }) {
                     <SidebarMenuButton asChild isActive={location.startsWith("/admin/rules")}>
                       <Link href="/admin/rules">
                         <Cpu className="h-4 w-4 text-slate-500" />
-                        <span>Kill-Chain Rules</span>
+                        <span>Signal Engine Rules</span>
                       </Link>
                     </SidebarMenuButton>
                   </SidebarMenuItem>
