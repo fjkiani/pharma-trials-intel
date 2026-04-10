@@ -1,0 +1,142 @@
+Read every file in this project. Here's the situation:
+
+This app is a Clinical Trials Co-Pilot for a persona named Susan (clinical research coordinator). It currently has two features: Sponsor Report generation and Regulatory Timeline tracking. It connects to 5 external systems via Replit Connectors: Notion, Google Drive, Google Docs, Gmail, Google Calendar.
+
+The current app has a critical UX problem that we experienced firsthand: the Settings page asks the user to manually paste 11 different IDs (Notion database IDs, Google Sheet IDs, Google Doc IDs, Calendar event IDs, etc). We — engineers — spent hours figuring out which Notion integration the app actually uses (Replit's connector vs a custom one called "cusor"), manually sharing databases, decoding base64 calendar event IDs, and pasting hex strings. A clinical research coordinator would never do any of this.
+
+The existing report generation works — enrollment data pulls from Google Sheets, it copies a Doc template, fills placeholders, emails the PI, tracks lifecycle (Draft → PI Review → Approved → Sent). But the Notion connections were broken because the databases weren't shared with the Replit integration (they were shared with a different one). The Mark Final button crashes because it hard-fails on Calendar API errors.
+
+Your job is to pivot this app. The connection problem IS the product. Stop building more report features. Build the connection orchestrator.
+
+Before you write any code, audit what exists:
+
+List every Replit Connector currently configured (check the Integrations panel)
+List every API endpoint in routes/ and what connector each one uses
+List every place in the code where a connector ID, database ID, or resource ID is referenced
+Show me the current Settings schema — every field the user has to fill in manually
+Do not fix anything yet. Just audit and report back.
+
+
+Show more
+7 minutes ago
+
+Planning comprehensive project audit
+Reading everything in parallel:
+
+
+5 actions
+Now reading the settings frontend, regulatory page, App.tsx, and checking live connectors:
+
+
+5 actions
+Now let me check the live connectors:
+
+
+2 actions
+I now have the complete picture. Here's the full audit:
+
+Audit Report
+1. Replit Connectors — what's actually configured
+Connector	ID	Status	Notes
+Notion	conn_notion_01KNREG1192A3Y9R6V3K73HDES	healthy	Used via connectors.proxy("notion", ...)
+Google Drive	conn_google-drive_01KNSCZAXZXARHD7DVD08NSKAC	healthy	Used for Sheets export, file copy, permissions, AND Docs API auth
+Google Docs	(not configured)	0 connections	Installed but empty — Docs operations route through Drive connector instead. DOCS_CONNECTOR = "google-drive" is hardcoded in googleDocs.ts
+Gmail	conn_google-mail_01KNSE85K7JABHK7TKG5B3ZJCN	healthy	Used for PI review emails and nag emails
+Google Calendar	conn_google-calendar_01KNREH8FEDZNR777E2M542SEG	healthy	Used for regulatory sync and sponsor call event patching
+Critical finding: Google Docs connector has zero connections. The workaround (using Drive's OAuth token for Docs API calls) is working, but it means there are effectively 4 active connectors, not 5, and the Docs integration is invisible/undocumented.
+
+2. Every API endpoint and which connector it touches
+Endpoint	Connectors	Settings fields consumed
+GET /healthz	None	None
+GET /settings	Replit DB	—
+PUT /settings	Replit DB	—
+GET /regulatory/documents	Notion	notionRegulatoryDbId
+GET /regulatory/summary	Notion	notionRegulatoryDbId
+POST /regulatory/sync-calendar	Notion (soft) + Calendar	notionRegulatoryDbId, googleCalendarId
+GET /reports	Replit DB	—
+POST /reports/generate	Drive (3 calls) + Notion (3 DB queries) + Docs API via Drive token	googleSheetsId, googleSheetTab, googleSheetHeaderRow, notionAeLogDbId, notionDeviationLogDbId, notionRegulatoryDbId, googleDocsTemplateId, piEmail
+POST /reports/run-monthly	Same as above + Gmail	All of the above + piEmail
+POST /reports/:id/send-to-pi	Gmail	piEmail
+POST /reports/:id/mark-approved	Replit DB only	—
+POST /reports/:id/mark-final	Calendar	googleCalendarId, sponsorCallEventId
+POST /reports/:id/discard	Drive (file delete)	—
+POST /internal/nag-check	Gmail	piEmail
+GET /integrations/status	Replit DB only	All — but connected: true is hardcoded for every integration
+3. Every place a connector ID, database ID, or resource ID is hardcoded or referenced
+artifacts/api-server/src/lib/settings.ts — the DEFAULT_SETTINGS block (lines 21–34):
+
+notionRegulatoryDbId: "33d95050449b8067a30df107c7ad0b4d"   ← raw hex, no dashes
+notionAeLogDbId:      "33d95050449b8028ab2ce5efd0b9e95c"   ← raw hex
+notionDeviationLogDbId: "33d95050449b80cd9429c8dd3ea02e65" ← raw hex
+googleCalendarId:     "fjkiani1@gmail.com"
+sponsorCallEventId:   "1tt71ni9k949rdus5b478mmkpg"         ← decoded base64 event ID
+googleSheetsId:       "1iOlglwaiNmILEE0KxFKlO0Xg4OWHWfeHMqJU46zCnu8"
+googleDocsTemplateId: "147su4CkTd1rjh6MeVryrVTKDnj4mEJjWwVLaEwgGrys"
+googleSheetTab:       "Sheet1"
+piEmail:              "fjkiani1@gmail.com"
+sponsorEmail:         "fjkiani1@gmail.com"
+
+artifacts/api-server/src/lib/googleDocs.ts — line 10:
+
+const DOCS_CONNECTOR = "google-drive"  ← hardcoded connector name alias
+
+artifacts/api-server/src/lib/googleDriveClient.ts — line 18:
+
+connectors.proxy("google-drive", ...)  ← connector name hardcoded
+
+artifacts/api-server/src/lib/notionClient.ts — line 24:
+
+connectors.proxy("notion", `/v1/databases/${uuid}/query`, ...)  ← connector name hardcoded
+
+artifacts/api-server/src/lib/gmailClient.ts — line 26:
+
+getGoogleOAuth2Client("google-mail")  ← connector name hardcoded
+
+artifacts/api-server/src/lib/googleCalendarClient.ts — line 37:
+
+connector_names=google-calendar  ← connector name hardcoded
+
+artifacts/api-server/src/lib/googleOAuthClient.ts — line 28–30:
+
+connector_names=${connectorName}  ← connector names passed as strings at call sites
+
+artifacts/api-server/src/routes/integrations.ts — lines 14, 43, 54, 60, 69, 76, 87:
+
+connected: true  ← hardcoded on ALL 5 integrations — never actually probed
+
+4. The Settings schema — every field Susan has to fill in manually
+The AppSettings interface has 12 fields across 3 groups:
+
+Notion (3 fields — each requires finding a database URL, extracting the 32-char hex ID, and hoping it's shared with the right integration):
+
+Field	What Susan has to do
+notionRegulatoryDbId	Open Notion, navigate to the database, copy the URL, extract the 32-hex-char ID segment
+notionAeLogDbId	Same, for a different database
+notionDeviationLogDbId	Same, for a third database
+Google Workspace (6 fields — each requires navigating a different product URL and parsing it):
+
+Field	What Susan has to do
+googleSheetsId	Open the spreadsheet, copy the long ID from the URL bar
+googleSheetTab	Know the exact tab name (case-sensitive)
+googleSheetHeaderRow	Count which row the header is on
+googleDocsTemplateId	Open the template doc, copy the ID from the URL bar
+googleCalendarId	Find the calendar settings, copy the Calendar ID (often an email)
+sponsorCallEventId	Open the event in Calendar → Edit → copy the URL → find eid= → base64-decode it → paste the raw ID
+Contacts (3 fields):
+
+Field	What Susan has to do
+piEmail	Type an email address
+sponsorEmail	Type an email address
+nagIntervalHours	Choose a number
+The base64 decode step for sponsorCallEventId is even documented in the Settings UI itself — the form literally links to base64decode.org and explains the eid= URL parameter. That's the moment the product admits it requires developer skills to operate.
+
+Summary of what's actually broken from a product perspective
+Settings is an ID-paste form, not a configuration experience. 9 of 12 fields require the user to dig into URLs of 4 separate Google products and Notion, decode cryptic strings, and transcribe them correctly.
+
+connected: true is a lie. The /integrations/status endpoint hardcodes connected: true for all 5 integrations. The sidebar says "Systems Connected" even when Notion databases aren't shared, the Sheet doesn't exist, or the template doc has been deleted.
+
+The Google Docs connector isn't actually used. It's installed but has zero connections. All Docs API calls go through the Drive connector. This is invisible to both the user and any future developer.
+
+Notion database sharing is a hidden prerequisite. The app will silently return zeros for AE/deviation counts if the databases aren't shared with the specific Replit integration (not just "a" Notion integration — the exact one Replit uses). There's no way for Susan to know this is wrong until she opens the report and sees all zeros.
+
+The sponsor call calendar event ID requires a three-step decode process that the Settings page currently explains using developer tooling (a third-party base64 website).
