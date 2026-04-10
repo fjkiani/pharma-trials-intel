@@ -6,6 +6,7 @@ import NotFound from "@/pages/not-found";
 import RegulatoryTimeline from "@/pages/regulatory";
 import Settings from "@/pages/settings";
 import SponsorReports from "@/pages/reports";
+import CompetitorWatch from "@/pages/competitor-watch";
 
 const queryClient = new QueryClient();
 
@@ -15,6 +16,7 @@ function Router() {
       <Route path="/" component={() => <Redirect to="/reports" />} />
       <Route path="/reports" component={SponsorReports} />
       <Route path="/regulatory" component={RegulatoryTimeline} />
+      <Route path="/competitor-watch" component={CompetitorWatch} />
       <Route path="/settings" component={Settings} />
       <Route component={NotFound} />
     </Switch>

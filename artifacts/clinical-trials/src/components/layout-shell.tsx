@@ -14,7 +14,7 @@ import {
   SidebarRail,
   SidebarFooter
 } from "@/components/ui/sidebar";
-import { Settings, FileText, CheckCircle2, AlertCircle, ClipboardList } from "lucide-react";
+import { Settings, FileText, CheckCircle2, AlertCircle, ClipboardList, Eye } from "lucide-react";
 import { useGetSettings, getGetSettingsQueryKey } from "@workspace/api-client-react";
 
 export function LayoutShell({ children }: { children: React.ReactNode }) {
@@ -58,6 +58,14 @@ export function LayoutShell({ children }: { children: React.ReactNode }) {
                       <Link href="/regulatory">
                         <FileText className="h-4 w-4" />
                         <span>Regulatory Timeline</span>
+                      </Link>
+                    </SidebarMenuButton>
+                  </SidebarMenuItem>
+                  <SidebarMenuItem>
+                    <SidebarMenuButton asChild isActive={location.startsWith("/competitor-watch")}>
+                      <Link href="/competitor-watch">
+                        <Eye className="h-4 w-4" />
+                        <span>Competitor Watch</span>
                       </Link>
                     </SidebarMenuButton>
                   </SidebarMenuItem>
