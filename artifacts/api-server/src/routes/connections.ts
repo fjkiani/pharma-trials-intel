@@ -32,7 +32,30 @@ router.post("/connections/discover", async (_req, res): Promise<void> => {
 
   const errors: string[] = [];
 
-  // --- Notion: search all databases accessible to the integration ---
+  // --- Notion: only surface the 3 ONCO-247 databases by name ---
+  // These are the exact database names shared with the Replit integration.
+  const ONCO247_NOTION_DBS: Array<{
+    nameMatch: string[];
+    role: "notionRegulatoryDbId" | "notionDeviationLogDbId" | "notionAeLogDbId";
+    label: string;
+  }> = [
+    {
+      nameMatch: ["regulatory milestones", "regulatory", "milestone"],
+      role: "notionRegulatoryDbId",
+      label: "Regulatory Milestones",
+    },
+    {
+      nameMatch: ["protocol deviations log", "deviation", "protocol deviations"],
+      role: "notionDeviationLogDbId",
+      label: "Protocol Deviations Log",
+    },
+    {
+      nameMatch: ["clinical trials co-pilot", "co-pilot", "adverse", "ae log", "clinical trials copilot"],
+      role: "notionAeLogDbId",
+      label: "Clinical Trials Co-Pilot",
+    },
+  ];
+
   try {
     const notionResponse = await connectors.proxy("notion", "/v1/search", {
       method: "POST",
@@ -46,12 +69,20 @@ router.post("/connections/discover", async (_req, res): Promise<void> => {
         const rawTitle = db.title as Array<{ plain_text?: string }> | undefined;
         const title = rawTitle?.[0]?.plain_text ?? "Untitled";
         const id = (db.id as string) ?? "";
+        const titleLower = title.toLowerCase();
+
+        // Only include the 3 ONCO-247 databases — ignore everything else
+        const matched = ONCO247_NOTION_DBS.find((entry) =>
+          entry.nameMatch.some((m) => titleLower.includes(m)),
+        );
+        if (!matched) continue;
+
         results.push({
           name: title,
           type: "notion-database",
           connector: "notion",
           id,
-          label: `Notion DB: ${title}`,
+          label: `Notion DB: ${matched.label}`,
         });
       }
     } else {

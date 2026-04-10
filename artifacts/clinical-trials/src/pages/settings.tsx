@@ -154,7 +154,7 @@ export default function Settings() {
         const roles = RESOURCE_TYPE_TO_ROLES[resource.type] ?? [];
         for (const role of roles) {
           if (autoMap[role]) continue;
-          if (role === "notionAeLogDbId" && (nameLower.includes("ae") || nameLower.includes("adverse"))) {
+          if (role === "notionAeLogDbId" && (nameLower.includes("ae") || nameLower.includes("adverse") || nameLower.includes("co-pilot") || nameLower.includes("copilot") || nameLower.includes("clinical trials"))) {
             autoMap[role] = resource.id;
           } else if (role === "notionDeviationLogDbId" && (nameLower.includes("deviation") || nameLower.includes("protocol"))) {
             autoMap[role] = resource.id;
