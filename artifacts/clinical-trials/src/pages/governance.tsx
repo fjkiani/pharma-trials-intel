@@ -4,7 +4,7 @@ import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
-import { Download, RefreshCw, ShieldCheck } from "lucide-react";
+import { Download, RefreshCw, ShieldCheck, ChevronDown, ChevronRight } from "lucide-react";
 import { getApiUrl } from "@/lib/api";
 
 const BASE = getApiUrl();
@@ -93,6 +93,7 @@ export default function Governance() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [filter, setFilter] = useState<AuditActor | "ALL">("ALL");
+  const [expandedId, setExpandedId] = useState<string | null>(null);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -229,6 +230,7 @@ export default function Governance() {
                   {visible.map((entry, idx) => {
                     const meta = ACTOR_META[entry.actor] ?? ACTOR_META["SYSTEM"];
                     const isLast = idx === visible.length - 1;
+                    const isExpanded = expandedId === entry.id;
                     return (
                       <li key={entry.id} className={`relative flex gap-4 ${isLast ? "" : "pb-5"}`}>
                         {/* Dot */}
@@ -237,26 +239,64 @@ export default function Governance() {
                         </div>
 
                         {/* Content */}
-                        <div className="flex-1 min-w-0 pt-1.5">
-                          <div className="flex items-center gap-2 flex-wrap mb-1">
-                            <Badge variant="outline" className={`text-xs font-mono ${meta.color}`}>
-                              {meta.label}
-                            </Badge>
-                            <span className="text-xs font-semibold text-foreground font-mono">
-                              {entry.action}
-                            </span>
-                            {entry.nctId && (
-                              <span className="text-xs text-muted-foreground font-mono">
-                                {entry.nctId}
+                        <div className="flex-1 min-w-0 pt-1">
+                          {/* Clickable header row */}
+                          <button
+                            onClick={() => setExpandedId(isExpanded ? null : entry.id)}
+                            className="w-full text-left group"
+                          >
+                            <div className="flex items-center gap-2 flex-wrap mb-1">
+                              <Badge variant="outline" className={`text-xs font-mono ${meta.color}`}>
+                                {meta.label}
+                              </Badge>
+                              <span className="text-xs font-semibold text-foreground font-mono">
+                                {entry.action}
                               </span>
-                            )}
-                            <span className="text-xs text-muted-foreground ml-auto shrink-0">
-                              {formatTs(entry.timestamp)}
-                            </span>
-                          </div>
-                          <p className="text-sm text-muted-foreground leading-snug">
-                            {entry.details}
-                          </p>
+                              {entry.nctId && (
+                                <span className="text-xs text-muted-foreground font-mono">
+                                  {entry.nctId}
+                                </span>
+                              )}
+                              <span className="text-xs text-muted-foreground ml-auto shrink-0 flex items-center gap-1">
+                                {formatTs(entry.timestamp)}
+                                {isExpanded
+                                  ? <ChevronDown className="h-3 w-3" />
+                                  : <ChevronRight className="h-3 w-3 opacity-40 group-hover:opacity-100" />}
+                              </span>
+                            </div>
+                            <p className="text-sm text-muted-foreground leading-snug text-left">
+                              {entry.details}
+                            </p>
+                          </button>
+
+                          {/* Expanded raw log panel */}
+                          {isExpanded && (
+                            <div className="mt-3 rounded-md border border-border bg-muted/40 p-3 font-mono text-xs space-y-1.5">
+                              <div className="grid grid-cols-[auto_1fr] gap-x-3 gap-y-1">
+                                <span className="text-muted-foreground">id</span>
+                                <span className="text-foreground break-all">{entry.id}</span>
+
+                                <span className="text-muted-foreground">timestamp</span>
+                                <span className="text-foreground">{entry.timestamp}</span>
+
+                                <span className="text-muted-foreground">actor</span>
+                                <span className={`font-semibold ${meta.color.split(" ")[0]}`}>{entry.actor}</span>
+
+                                <span className="text-muted-foreground">action</span>
+                                <span className="text-foreground">{entry.action}</span>
+
+                                {entry.nctId && (
+                                  <>
+                                    <span className="text-muted-foreground">nctId</span>
+                                    <span className="text-foreground">{entry.nctId}</span>
+                                  </>
+                                )}
+
+                                <span className="text-muted-foreground">details</span>
+                                <span className="text-foreground whitespace-pre-wrap break-words">{entry.details}</span>
+                              </div>
+                            </div>
+                          )}
                         </div>
                       </li>
                     );
