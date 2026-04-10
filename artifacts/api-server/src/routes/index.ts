@@ -4,6 +4,7 @@ import regulatoryRouter from "./regulatory.js";
 import settingsRouter from "./settings.js";
 import reportsRouter from "./reports.js";
 import integrationsRouter from "./integrations.js";
+import swarmRouter from "./swarm.js";
 
 const router: IRouter = Router();
 
@@ -12,5 +13,6 @@ router.use(regulatoryRouter);
 router.use(settingsRouter);
 router.use(reportsRouter);
 router.use(integrationsRouter);
+router.use(swarmRouter);
 
 export default router;
