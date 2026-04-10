@@ -236,8 +236,17 @@ async function buildClient(): Promise<SimpleNotionClient> {
         throw new Error(`Notion createPage failed (${res.status}): ${text.slice(0, 200)}`);
       }
 
-      const data = await (res as unknown as Response).json() as { id?: string; url?: string; object?: string; message?: string };
+      const data = await (res as unknown as Response).json() as { id?: string; url?: string; object?: string; message?: string; parent?: { type?: string } };
       if (data.object === "error") throw new Error(`Notion error: ${data.message}`);
+
+      // Notion silently falls back to workspace root when the integration
+      // doesn't have access to the target database. Catch this.
+      if (data.parent?.type === "workspace") {
+        throw new Error(
+          `Notion accepted the page but placed it in the workspace root — the database has not been shared with the Replit integration. ` +
+          `Open the database in Notion → Share → Add connections → select "Replit".`
+        );
+      }
 
       const pageId = data.id ?? "";
 
