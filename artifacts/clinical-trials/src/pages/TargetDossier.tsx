@@ -11,15 +11,10 @@ import {
   AlertTriangle,
   AlertCircle,
   ExternalLink,
-  FlaskConical,
-  Target,
-  ShieldAlert,
-  TrendingDown,
-  TrendingUp,
-  ArrowRight,
-  Clock,
-  Users,
-  Activity,
+  Crosshair,
+  ShieldOff,
+  FileWarning,
+  BookOpen,
 } from "lucide-react";
 
 const API_BASE = "/api";
@@ -35,15 +30,34 @@ async function apiFetch<T>(path: string): Promise<T> {
   return res.json() as Promise<T>;
 }
 
+// ── Types ─────────────────────────────────────────────────────────────────────
+
 type AlertSeverity = "critical" | "high" | "medium" | "low";
 
 interface TriggeredAlert {
   nctId: string;
   detectedAt: string;
-  module: string;
+  module?: string;
   severity: AlertSeverity;
   headline: string;
   detail: string;
+  evidence?: {
+    pfsTimeFrameMonths?: number | null;
+    osTimeFrameMonths?: number | null;
+    pfsBaselineMonths?: number | null;
+    osBaselineMonths?: number | null;
+  };
+  zetaCore?: {
+    evidenceTier?: string;
+    cynicalSummary?: string;
+    clinicalDirective?: string;
+    articles?: Array<{
+      pmid?: string;
+      title?: string;
+      journal?: string;
+      year?: string | number;
+    }>;
+  };
 }
 
 interface Outcome {
@@ -79,499 +93,488 @@ interface TrialMeta {
 
 interface DossierResponse {
   nctId: string;
+  source?: string;
   alerts: TriggeredAlert[];
   trial: TrialMeta;
 }
 
-// ── Severity config ────────────────────────────────────────────────────────────
+// ── Helpers ───────────────────────────────────────────────────────────────────
 
-const SEVERITY_CONFIG: Record<AlertSeverity, {
-  label: string;
-  badgeClass: string;
-  borderClass: string;
-  bgClass: string;
-  Icon: React.ComponentType<{ className?: string }>;
-  textClass: string;
-}> = {
-  critical: {
-    label: "CRITICAL",
-    badgeClass: "bg-red-500 text-white",
-    borderClass: "border-red-400",
-    bgClass: "bg-red-50",
-    textClass: "text-red-700",
-    Icon: AlertOctagon,
-  },
-  high: {
-    label: "HIGH",
-    badgeClass: "bg-orange-500 text-white",
-    borderClass: "border-orange-400",
-    bgClass: "bg-orange-50",
-    textClass: "text-orange-700",
-    Icon: AlertTriangle,
-  },
-  medium: {
-    label: "MEDIUM",
-    badgeClass: "bg-amber-400 text-white",
-    borderClass: "border-amber-300",
-    bgClass: "bg-amber-50",
-    textClass: "text-amber-700",
-    Icon: AlertCircle,
-  },
-  low: {
-    label: "LOW",
-    badgeClass: "bg-gray-400 text-white",
-    borderClass: "border-gray-300",
-    bgClass: "bg-gray-50",
-    textClass: "text-gray-600",
-    Icon: AlertCircle,
-  },
+const STATUS_DISPLAY: Record<string, { label: string; cls: string }> = {
+  TERMINATED: { label: "TERMINATED", cls: "text-red-700 bg-red-100 border-red-400" },
+  WITHDRAWN: { label: "WITHDRAWN", cls: "text-red-700 bg-red-100 border-red-400" },
+  SUSPENDED: { label: "SUSPENDED", cls: "text-orange-700 bg-orange-100 border-orange-400" },
+  COMPLETED: { label: "COMPLETED", cls: "text-emerald-700 bg-emerald-100 border-emerald-400" },
+  RECRUITING: { label: "RECRUITING", cls: "text-blue-700 bg-blue-100 border-blue-400" },
+  ACTIVE_NOT_RECRUITING: { label: "ACTIVE · NOT RECRUITING", cls: "text-amber-700 bg-amber-100 border-amber-400" },
+  NOT_YET_RECRUITING: { label: "NOT YET RECRUITING", cls: "text-gray-600 bg-gray-100 border-gray-400" },
 };
 
-const STATUS_COLOR: Record<string, string> = {
-  TERMINATED: "text-red-700 bg-red-50 border-red-300",
-  WITHDRAWN: "text-red-700 bg-red-50 border-red-300",
-  SUSPENDED: "text-red-700 bg-red-50 border-red-300",
-  COMPLETED: "text-emerald-700 bg-emerald-50 border-emerald-300",
-  RECRUITING: "text-blue-700 bg-blue-50 border-blue-300",
-  ACTIVE_NOT_RECRUITING: "text-amber-700 bg-amber-50 border-amber-300",
-  NOT_YET_RECRUITING: "text-gray-600 bg-gray-50 border-gray-300",
-};
+function deriveFailureVector(whyStopped: string | null, alerts: TriggeredAlert[]): string {
+  const src = (whyStopped ?? alerts[0]?.headline ?? "").toLowerCase();
+  if (src.includes("ctep") || src.includes("drug supply") || src.includes("supplied drug")) return "DRUG SUPPLY HALTED";
+  if (src.includes("futility") || src.includes("efficacy")) return "FUTILITY — EFFICACY FAILED";
+  if (src.includes("safety") || src.includes("adverse") || src.includes("toxicity")) return "SAFETY SIGNAL FORCED STOP";
+  if (src.includes("enrollment") || src.includes("recruit")) return "ENROLLMENT COLLAPSE";
+  if (src.includes("covid") || src.includes("pandemic")) return "EXTERNAL FORCE MAJEURE";
+  if (src.includes("company") || src.includes("sponsor") || src.includes("decision") || src.includes("prematurely")) return "SPONSOR WITHDRAWAL";
+  if (src.includes("partner") || src.includes("collaborat")) return "PARTNER BAILOUT";
+  if (alerts[0]?.module === "TerminationDetector") return "SPONSOR DECISION";
+  if (alerts[0]?.module === "ResultsIntelligence") return "RESULTS POSTED";
+  if (alerts[0]?.module === "ToxicityCamouflage") return "ADVERSE EVENT SIGNAL";
+  return "SIGNAL DETECTED";
+}
 
-// ── Module-specific diff viewer ────────────────────────────────────────────────
+function deriveEvidenceTier(alerts: TriggeredAlert[]): { label: string; cls: string } {
+  const tier = alerts[0]?.zetaCore?.evidenceTier;
+  if (tier) {
+    const upper = tier.toUpperCase();
+    if (upper === "CONFIRMED" || upper === "STRONG") return { label: upper, cls: "bg-red-600 text-white" };
+    if (upper === "PROBABLE" || upper === "MODERATE") return { label: upper, cls: "bg-orange-500 text-white" };
+    return { label: upper, cls: "bg-gray-500 text-white" };
+  }
+  const worst = alerts[0]?.severity;
+  if (worst === "critical") return { label: "CONFIRMED", cls: "bg-red-600 text-white" };
+  if (worst === "high") return { label: "PROBABLE", cls: "bg-orange-500 text-white" };
+  if (worst === "medium") return { label: "INSUFFICIENT", cls: "bg-amber-400 text-white" };
+  return { label: "UNSCORED", cls: "bg-gray-400 text-white" };
+}
 
-function DiffRow({
-  label,
-  prev,
-  curr,
-  positive,
-}: {
-  label: string;
-  prev: string | number | null;
-  curr: string | number | null;
-  positive?: "up" | "down";
-}) {
-  const prevStr = prev != null ? String(prev) : "—";
-  const currStr = curr != null ? String(curr) : "—";
-  const changed = prevStr !== currStr && prev != null && curr != null;
-  const isUp = positive === "up";
-  const Arrow = isUp ? TrendingUp : TrendingDown;
+function deriveClinicalDirective(alerts: TriggeredAlert[]): string {
+  const directive = alerts[0]?.zetaCore?.clinicalDirective;
+  if (directive) return directive;
+  const module = alerts[0]?.module;
+  if (module === "TerminationDetector") return "Debrief PI immediately. Evaluate whether this termination creates a positioning gap or enrollment opportunity for ONCO-247.";
+  if (module === "ResultsIntelligence") return "Pull primary and secondary outcome data from the registry. Benchmark efficacy and AE profiles against ONCO-247's current targets.";
+  if (module === "ToxicityCamouflage") return "Extract AE grade distribution. Identify whether the competitor's safety profile creates a differentiation advantage for ONCO-247.";
+  if (module === "EnrollmentBleed") return "Track enrollment velocity. If bleed is accelerating, assess risk of ONCO-247 competing for the same site network.";
+  return "Review the full signal chain before the next PI sync.";
+}
+
+function deriveCynicalSummary(alerts: TriggeredAlert[], whyStopped: string | null): string {
+  const s = alerts[0]?.zetaCore?.cynicalSummary;
+  if (s) return s;
+  const module = alerts[0]?.module;
+  if (module === "TerminationDetector" && whyStopped) {
+    return `Sponsor pulled the plug mid-study. ${whyStopped} This pattern typically precedes a competitive repositioning or portfolio deprioritization.`;
+  }
+  if (module === "ResultsIntelligence") {
+    return "This competitor has crossed the finish line. Results are now on the public record — the window to shape the narrative is closing fast.";
+  }
+  if (module === "ToxicityCamouflage") {
+    return "Serious adverse events are recorded. The sponsor's safety profile is now public domain — a potential differentiation lever for ONCO-247 if your AE rates diverge.";
+  }
+  return alerts[0]?.detail ?? "Signal detected during live monitoring. Full enrichment pending ZetaCore analysis.";
+}
+
+// Parse months from a timeFrame string like "Up to 84 months", "48 months", "3 years"
+function parseMonths(tf: string | undefined | null): number | null {
+  if (!tf) return null;
+  const mMatch = tf.match(/(\d+(?:\.\d+)?)\s*month/i);
+  if (mMatch) return parseFloat(mMatch[1]);
+  const yMatch = tf.match(/(\d+(?:\.\d+)?)\s*year/i);
+  if (yMatch) return Math.round(parseFloat(yMatch[1]) * 12);
+  const wMatch = tf.match(/(\d+(?:\.\d+)?)\s*week/i);
+  if (wMatch) return Math.round(parseFloat(wMatch[1]) / 4.3);
+  return null;
+}
+
+// ── Section 1: Kill-Shot Header ────────────────────────────────────────────────
+
+function KillShotHeader({ trial, alerts }: { trial: TrialMeta; alerts: TriggeredAlert[] }) {
+  const statusCfg = STATUS_DISPLAY[trial.overallStatus] ?? { label: trial.overallStatus.replace(/_/g, " "), cls: "text-gray-600 bg-gray-100 border-gray-400" };
+  const phase = trial.phase && trial.phase !== "N/A" ? trial.phase.replace(/PHASE/gi, "Phase ") : null;
+  const failureVector = deriveFailureVector(trial.whyStopped, alerts);
+  const evidenceTier = deriveEvidenceTier(alerts);
+  const isTerminal = ["TERMINATED", "WITHDRAWN", "SUSPENDED"].includes(trial.overallStatus);
 
   return (
-    <div className="grid grid-cols-[120px_1fr_28px_1fr] items-center gap-2 py-2 border-b border-border last:border-0 text-sm">
-      <span className="text-muted-foreground font-medium text-xs uppercase tracking-wide">{label}</span>
-      <span className={`font-mono px-2 py-0.5 rounded text-xs ${changed ? "line-through text-muted-foreground bg-red-50" : "text-foreground bg-muted"}`}>
-        {prevStr}
-      </span>
-      <ArrowRight className="h-3.5 w-3.5 text-muted-foreground mx-auto" />
-      <span className={`font-mono px-2 py-0.5 rounded text-xs font-semibold ${changed ? "text-emerald-700 bg-emerald-50 ring-1 ring-emerald-300" : "text-muted-foreground bg-muted"}`}>
-        {currStr}
-        {changed && <Arrow className="inline h-3 w-3 ml-1" />}
-      </span>
+    <div className="space-y-4">
+      {/* Title row */}
+      <div className="flex items-start justify-between gap-3 flex-wrap">
+        <div className="space-y-1 flex-1 min-w-0">
+          <p className="text-xs font-mono text-muted-foreground font-semibold tracking-widest">{trial.leadSponsor.toUpperCase()}</p>
+          <h1 className="text-xl font-bold leading-snug text-foreground">{trial.title}</h1>
+        </div>
+        <a
+          href={`https://clinicaltrials.gov/study/${trial.nctId}`}
+          target="_blank"
+          rel="noopener noreferrer"
+          className="shrink-0 inline-flex items-center gap-1.5 text-xs text-teal-600 hover:text-teal-700 px-2.5 py-1.5 rounded-md border border-teal-200 bg-teal-50 hover:bg-teal-100 transition-colors"
+        >
+          <ExternalLink className="h-3 w-3" />
+          ClinicalTrials.gov
+        </a>
+      </div>
+
+      {/* 3-column metrics bar */}
+      <div className="grid grid-cols-1 sm:grid-cols-3 gap-0 rounded-xl border border-border overflow-hidden divide-y sm:divide-y-0 sm:divide-x divide-border">
+        {/* Col 1: Competitor Status */}
+        <div className="bg-muted/30 px-5 py-4">
+          <p className="text-[10px] font-semibold uppercase tracking-widest text-muted-foreground mb-2">Competitor Status</p>
+          <div className="flex items-center gap-2 flex-wrap">
+            <span className={`text-sm font-bold px-2.5 py-1 rounded-md border font-mono tracking-wide ${statusCfg.cls}`}>
+              {statusCfg.label}
+            </span>
+            {phase && (
+              <span className="text-sm font-semibold text-muted-foreground">{phase}</span>
+            )}
+          </div>
+          {trial.hasResults && (
+            <p className="text-[10px] text-emerald-600 font-semibold mt-1.5 uppercase tracking-wide">● Results on record</p>
+          )}
+        </div>
+
+        {/* Col 2: Failure Vector */}
+        <div className={`px-5 py-4 ${isTerminal ? "bg-red-50" : "bg-muted/30"}`}>
+          <p className="text-[10px] font-semibold uppercase tracking-widest text-muted-foreground mb-2">Failure Vector</p>
+          <div className="flex items-center gap-2">
+            {isTerminal && <ShieldOff className="h-4 w-4 text-red-600 shrink-0" />}
+            <span className={`text-sm font-bold font-mono tracking-wide ${isTerminal ? "text-red-700" : "text-foreground"}`}>
+              {failureVector}
+            </span>
+          </div>
+          {trial.whyStopped && (
+            <p className="text-[10px] text-muted-foreground mt-1.5 line-clamp-2 leading-relaxed">
+              {trial.whyStopped.slice(0, 80)}{trial.whyStopped.length > 80 ? "…" : ""}
+            </p>
+          )}
+        </div>
+
+        {/* Col 3: Zeta-Core Verdict */}
+        <div className="bg-muted/30 px-5 py-4">
+          <p className="text-[10px] font-semibold uppercase tracking-widest text-muted-foreground mb-2">Zeta-Core Verdict</p>
+          <div className="flex items-center gap-2">
+            <span className={`text-xs font-bold px-3 py-1 rounded-full tracking-widest font-mono ${evidenceTier.cls}`}>
+              {evidenceTier.label}
+            </span>
+          </div>
+          <p className="text-[10px] text-muted-foreground mt-1.5">
+            {alerts.length} signal{alerts.length !== 1 ? "s" : ""} · {new Date(alerts[0]?.detectedAt ?? Date.now()).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" })}
+          </p>
+        </div>
+      </div>
     </div>
   );
 }
 
-function ModuleDiffViewer({ alert, baseline }: { alert: TriggeredAlert; baseline: BaselineSnapshot | null }) {
-  switch (alert.module) {
-    case "TimelineShift":
-      return (
-        <div className="rounded-md border border-border bg-background p-3">
-          <DiffRow
-            label="Completion Date"
-            prev={baseline?.primaryCompletionDate ?? null}
-            curr={null}
-            positive="up"
-          />
-          <p className="text-xs text-muted-foreground mt-2 italic">
-            Exact dates are embedded in the alert headline above. Baseline snapshot available for cross-reference.
-          </p>
-        </div>
-      );
+// ── Section 2: The Smoking Gun ────────────────────────────────────────────────
 
-    case "EnrollmentBleed":
-      return (
-        <div className="rounded-md border border-border bg-background p-3">
-          <DiffRow
-            label="Enrollment"
-            prev={baseline?.enrollmentCount ?? null}
-            curr={null}
-            positive="up"
-          />
-          <p className="text-xs text-muted-foreground mt-2 italic">
-            Exact counts are embedded in the alert headline above.
-          </p>
-        </div>
-      );
-
-    case "StatusTransition":
-      return (
-        <div className="rounded-md border border-border bg-background p-3">
-          <DiffRow
-            label="Overall Status"
-            prev={baseline?.overallStatus ?? null}
-            curr={null}
-            positive="up"
-          />
-          <p className="text-xs text-muted-foreground mt-2 italic">
-            Exact transition captured in the alert headline above.
-          </p>
-        </div>
-      );
-
-    case "TerminationDetector":
-      return (
-        <div className="rounded-md border border-red-200 bg-red-50 p-3">
-          <div className="flex items-center gap-2 text-red-700">
-            <ShieldAlert className="h-4 w-4" />
-            <span className="text-sm font-semibold">Trial halted by sponsor/FDA</span>
-          </div>
-          <p className="text-xs text-red-600 mt-1">
-            This trial's overall status has moved into a terminal state. This is the strongest competitive signal — discuss with your PI immediately.
-          </p>
-        </div>
-      );
-
-    case "ResultsIntelligence":
-      return (
-        <div className="rounded-md border border-blue-200 bg-blue-50 p-3">
-          <div className="flex items-center gap-2 text-blue-700">
-            <FlaskConical className="h-4 w-4" />
-            <span className="text-sm font-semibold">Primary outcome data now public</span>
-          </div>
-          <p className="text-xs text-blue-600 mt-1">
-            Results have been submitted to ClinicalTrials.gov. Efficacy and safety data are now accessible for competitive benchmarking.
-          </p>
-        </div>
-      );
-
-    case "ToxicityCamouflage":
-      return (
-        <div className="rounded-md border border-orange-200 bg-orange-50 p-3">
-          <div className="flex items-center gap-2 text-orange-700">
-            <AlertTriangle className="h-4 w-4" />
-            <span className="text-sm font-semibold">Serious adverse events detected in registry</span>
-          </div>
-          <p className="text-xs text-orange-600 mt-1">
-            The trial's results section contains reported serious adverse events. Review the AE profile for safety differentiation opportunities.
-          </p>
-        </div>
-      );
-
-    default:
-      return null;
-  }
-}
-
-// ── Module label lookup ────────────────────────────────────────────────────────
-
-const MODULE_LABELS: Record<string, string> = {
-  TerminationDetector: "Termination Detector",
-  ResultsIntelligence: "Results Intelligence",
-  ToxicityCamouflage: "Toxicity Camouflage",
-  EnrollmentBleed: "Enrollment Bleed",
-  TimelineShift: "Timeline Shift",
-  StatusTransition: "Status Transition",
-};
-
-// ── Panels ─────────────────────────────────────────────────────────────────────
-
-function PanelA({ trial, alerts }: { trial: TrialMeta; alerts: TriggeredAlert[] }) {
+function SmokingGun({ trial, alerts }: { trial: TrialMeta; alerts: TriggeredAlert[] }) {
+  const cynicalSummary = deriveCynicalSummary(alerts, trial.whyStopped);
+  const clinicalDirective = deriveClinicalDirective(alerts);
   const worst = alerts[0];
-  const statusClass = STATUS_COLOR[trial.overallStatus] ?? "text-gray-600 bg-gray-50 border-gray-300";
-  const worstCfg = worst ? SEVERITY_CONFIG[worst.severity] : null;
+  const isTerminal = ["TERMINATED", "WITHDRAWN", "SUSPENDED"].includes(trial.overallStatus);
+
+  const smokingGunQuote = isTerminal && trial.whyStopped
+    ? trial.whyStopped
+    : worst?.headline ?? null;
 
   return (
-    <Card>
-      <CardHeader className="pb-3">
-        <div className="flex items-start justify-between gap-3 flex-wrap">
-          <div className="space-y-1 flex-1 min-w-0">
-            <div className="flex items-center gap-2 flex-wrap">
-              <span className="font-mono text-sm font-bold text-muted-foreground">{trial.nctId}</span>
-              <Badge className={`text-[10px] px-2 py-0.5 border ${statusClass}`}>
-                {trial.overallStatus.replace(/_/g, " ")}
-              </Badge>
-              {trial.phase && trial.phase !== "N/A" && (
-                <Badge variant="outline" className="text-[10px] px-2 py-0.5">
-                  {trial.phase.replace(/PHASE/g, "Phase ")}
-                </Badge>
-              )}
-              {trial.hasResults && (
-                <Badge className="text-[10px] px-2 py-0.5 bg-emerald-500/10 text-emerald-700 border-emerald-400/30">
-                  Results Posted
-                </Badge>
-              )}
-            </div>
-            <CardTitle className="text-xl leading-snug">{trial.title}</CardTitle>
-            <p className="text-sm text-muted-foreground">{trial.leadSponsor}</p>
-          </div>
-          <div className="flex gap-1.5 shrink-0">
-            <a
-              href={`https://clinicaltrials.gov/study/${trial.nctId}`}
-              target="_blank"
-              rel="noopener noreferrer"
-              className="inline-flex items-center gap-1.5 text-xs text-teal-600 hover:text-teal-700 px-2.5 py-1.5 rounded-md border border-teal-200 bg-teal-50 hover:bg-teal-100 transition-colors"
-            >
-              <ExternalLink className="h-3 w-3" />
-              ClinicalTrials.gov
-            </a>
-          </div>
+    <Card className={`border-2 ${isTerminal ? "border-red-400" : "border-orange-400"}`}>
+      <CardHeader className={`pb-3 ${isTerminal ? "bg-red-50" : "bg-orange-50"} rounded-t-lg`}>
+        <div className="flex items-center gap-2">
+          <FileWarning className={`h-4 w-4 ${isTerminal ? "text-red-600" : "text-orange-600"}`} />
+          <CardTitle className={`text-base ${isTerminal ? "text-red-800" : "text-orange-800"}`}>
+            The Smoking Gun
+          </CardTitle>
         </div>
       </CardHeader>
-
-      <CardContent className="space-y-4">
-        {/* Verdict row */}
-        {worstCfg && worst && (
-          <div className={`rounded-lg border-2 ${worstCfg.borderClass} ${worstCfg.bgClass} p-4 space-y-2`}>
-            <div className="flex items-center gap-2">
-              <worstCfg.Icon className={`h-5 w-5 ${worstCfg.textClass}`} />
-              <span className={`text-sm font-bold uppercase tracking-wide ${worstCfg.textClass}`}>
-                {worstCfg.label} ALERT
-              </span>
-              <Badge className={worstCfg.badgeClass + " ml-auto text-[10px]"}>
-                {alerts.length} signal{alerts.length !== 1 ? "s" : ""} detected
-              </Badge>
-            </div>
-            <p className="text-base font-semibold text-foreground leading-snug">{worst.headline}</p>
+      <CardContent className="space-y-4 pt-4">
+        {/* Exact termination quote */}
+        {smokingGunQuote && (
+          <div className={`rounded-md border-l-4 ${isTerminal ? "border-red-500 bg-red-50/60" : "border-orange-500 bg-orange-50/60"} pl-4 pr-3 py-3`}>
+            <p className={`text-[10px] font-semibold uppercase tracking-widest mb-1.5 ${isTerminal ? "text-red-500" : "text-orange-500"}`}>
+              {isTerminal ? "Termination Statement" : "Primary Signal"}
+            </p>
+            <blockquote className={`font-mono text-sm leading-relaxed italic ${isTerminal ? "text-red-900" : "text-orange-900"}`}>
+              "{smokingGunQuote}"
+            </blockquote>
           </div>
         )}
 
-        {/* Quick stats */}
-        <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
-          <div className="rounded-md bg-muted/40 border border-border p-3">
-            <div className="flex items-center gap-1.5 text-xs text-muted-foreground mb-1">
-              <Users className="h-3.5 w-3.5" />
-              Enrollment
-            </div>
-            <div className="text-lg font-bold">
-              {trial.enrollmentCount != null ? trial.enrollmentCount.toLocaleString() : "—"}
-            </div>
-            {trial.enrollmentType && (
-              <div className="text-[10px] text-muted-foreground">{trial.enrollmentType}</div>
+        {/* Cynical Summary */}
+        <div>
+          <p className="text-[10px] font-semibold uppercase tracking-widest text-muted-foreground mb-1.5">
+            ZetaCore Analysis
+          </p>
+          <p className="text-sm text-foreground leading-relaxed">{cynicalSummary}</p>
+        </div>
+
+        {/* Clinical Directive */}
+        <div className="rounded-md bg-slate-900 border border-slate-700 px-4 py-3 flex items-start gap-3">
+          <Crosshair className="h-4 w-4 text-teal-400 shrink-0 mt-0.5" />
+          <div>
+            <p className="text-[10px] font-semibold uppercase tracking-widest text-teal-400 mb-1">
+              Clinical Directive
+            </p>
+            <p className="text-sm text-slate-100 leading-relaxed">{clinicalDirective}</p>
+          </div>
+        </div>
+      </CardContent>
+    </Card>
+  );
+}
+
+// ── Section 3: Endpoint Benchmark Table ──────────────────────────────────────
+
+interface EndpointBar {
+  label: string;
+  measure: string;
+  competitorMonths: number | null;
+  baselineMonths: number | null;
+  timeFrameRaw: string;
+}
+
+function EndpointBar({ bar, maxMonths }: { bar: EndpointBar; maxMonths: number }) {
+  const competitorPct = bar.competitorMonths != null ? Math.min((bar.competitorMonths / maxMonths) * 100, 100) : null;
+  const baselinePct = bar.baselineMonths != null ? Math.min((bar.baselineMonths / maxMonths) * 100, 100) : null;
+  const delta = bar.competitorMonths != null && bar.baselineMonths != null
+    ? bar.competitorMonths - bar.baselineMonths
+    : null;
+
+  return (
+    <div className="space-y-1.5 py-3 border-b border-border last:border-0">
+      <div className="flex items-start justify-between gap-3">
+        <div className="flex-1 min-w-0">
+          <p className="text-[10px] font-semibold uppercase tracking-widest text-muted-foreground">{bar.label}</p>
+          <p className="text-sm font-medium text-foreground leading-snug mt-0.5 line-clamp-2">{bar.measure}</p>
+          <p className="text-[10px] text-muted-foreground mt-0.5">{bar.timeFrameRaw}</p>
+        </div>
+        {delta !== null && (
+          <div className={`shrink-0 text-right`}>
+            <span className={`text-sm font-bold font-mono ${delta > 0 ? "text-red-600" : delta < 0 ? "text-emerald-600" : "text-muted-foreground"}`}>
+              {delta > 0 ? `+${delta}` : delta < 0 ? `${delta}` : "±0"} mo
+            </span>
+            {delta !== 0 && (
+              <p className={`text-[10px] font-semibold ${delta > 0 ? "text-red-500" : "text-emerald-500"}`}>
+                {delta > 0 ? "DELAY" : "AHEAD"}
+              </p>
             )}
           </div>
-          <div className="rounded-md bg-muted/40 border border-border p-3">
-            <div className="flex items-center gap-1.5 text-xs text-muted-foreground mb-1">
-              <Clock className="h-3.5 w-3.5" />
-              Primary Completion
-            </div>
-            <div className="text-sm font-bold">{trial.primaryCompletionDate ?? "—"}</div>
-          </div>
-          <div className="rounded-md bg-muted/40 border border-border p-3">
-            <div className="flex items-center gap-1.5 text-xs text-muted-foreground mb-1">
-              <Activity className="h-3.5 w-3.5" />
-              Signal Count
-            </div>
-            <div className="text-lg font-bold">{alerts.length}</div>
-            <div className="text-[10px] text-muted-foreground">
-              {alerts.filter(a => a.severity === "critical").length} critical
-            </div>
-          </div>
-          <div className="rounded-md bg-muted/40 border border-border p-3">
-            <div className="flex items-center gap-1.5 text-xs text-muted-foreground mb-1">
-              <FlaskConical className="h-3.5 w-3.5" />
-              Conditions
-            </div>
-            <div className="text-xs font-medium leading-snug line-clamp-2">
-              {trial.conditions.length > 0 ? trial.conditions.slice(0, 2).join(", ") : "—"}
-            </div>
-          </div>
-        </div>
-
-        {/* Brief summary */}
-        {trial.briefSummary && (
-          <div className="rounded-md bg-muted/30 border border-border p-3">
-            <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wide mb-1.5">
-              Sponsor Description
-            </p>
-            <p className="text-sm text-foreground leading-relaxed line-clamp-4">
-              {trial.briefSummary}
-            </p>
-          </div>
         )}
-      </CardContent>
-    </Card>
-  );
-}
+      </div>
 
-function PanelB({ alerts, baseline }: { alerts: TriggeredAlert[]; baseline: BaselineSnapshot | null }) {
-  if (alerts.length === 0) return null;
-
-  return (
-    <Card>
-      <CardHeader className="pb-2">
-        <div className="flex items-center gap-2">
-          <Target className="h-4 w-4 text-red-500" />
-          <CardTitle className="text-base">Exploit Evidence — {alerts.length} Signal{alerts.length !== 1 ? "s" : ""} Detected</CardTitle>
-        </div>
-        <p className="text-sm text-muted-foreground mt-0.5">
-          Each signal represents a discrete anomaly detected by the Signal Engine during live ClinicalTrials.gov monitoring.
-        </p>
-      </CardHeader>
-      <CardContent className="space-y-5">
-        {alerts.map((alert, idx) => {
-          const cfg = SEVERITY_CONFIG[alert.severity];
-          const moduleLabel = MODULE_LABELS[alert.module] ?? alert.module;
-          return (
-            <div key={idx} className={`rounded-lg border-2 ${cfg.borderClass} overflow-hidden`}>
-              {/* Alert header */}
-              <div className={`px-4 py-3 ${cfg.bgClass} flex items-start gap-3`}>
-                <cfg.Icon className={`h-4 w-4 mt-0.5 shrink-0 ${cfg.textClass}`} />
-                <div className="flex-1 min-w-0">
-                  <div className="flex items-center gap-2 flex-wrap mb-1">
-                    <Badge className={`text-[10px] px-1.5 py-0 ${cfg.badgeClass}`}>
-                      {cfg.label}
-                    </Badge>
-                    <span className="text-xs font-mono font-semibold text-muted-foreground">
-                      {moduleLabel}
-                    </span>
-                    <span className="text-[10px] text-muted-foreground ml-auto">
-                      {new Date(alert.detectedAt).toLocaleString("en-US", {
-                        month: "short", day: "numeric", year: "numeric",
-                        hour: "numeric", minute: "2-digit", hour12: true,
-                      })}
-                    </span>
-                  </div>
-                  <p className="text-sm font-bold text-foreground leading-snug">
-                    Mechanical Exploit: {moduleLabel}
-                  </p>
-                  <p className="text-sm text-foreground mt-1">{alert.headline}</p>
-                </div>
+      {/* Bars */}
+      {(competitorPct !== null || baselinePct !== null) && (
+        <div className="space-y-1 mt-2">
+          {baselinePct !== null && (
+            <div className="flex items-center gap-2">
+              <span className="text-[9px] text-muted-foreground w-16 shrink-0 text-right font-mono">BASELINE</span>
+              <div className="flex-1 h-3 bg-muted rounded-sm overflow-hidden">
+                <div
+                  className="h-full bg-slate-400 rounded-sm transition-all"
+                  style={{ width: `${baselinePct}%` }}
+                />
               </div>
-
-              {/* Description */}
-              <div className="px-4 py-3 border-t border-border bg-background">
-                <p className="text-sm text-muted-foreground leading-relaxed">{alert.detail}</p>
-              </div>
-
-              {/* Module-specific diff */}
-              <div className="px-4 pb-3">
-                <ModuleDiffViewer alert={alert} baseline={baseline} />
-              </div>
+              <span className="text-[9px] font-mono text-muted-foreground w-12 shrink-0">{bar.baselineMonths} mo</span>
             </div>
-          );
-        })}
-      </CardContent>
-    </Card>
+          )}
+          {competitorPct !== null && (
+            <div className="flex items-center gap-2">
+              <span className="text-[9px] text-muted-foreground w-16 shrink-0 text-right font-mono">COMPETITOR</span>
+              <div className="flex-1 h-3 bg-muted rounded-sm overflow-hidden">
+                <div
+                  className={`h-full rounded-sm transition-all ${delta !== null && delta > 0 ? "bg-red-400" : delta !== null && delta < 0 ? "bg-emerald-500" : "bg-blue-400"}`}
+                  style={{ width: `${competitorPct}%` }}
+                />
+              </div>
+              <span className="text-[9px] font-mono text-muted-foreground w-12 shrink-0">{bar.competitorMonths} mo</span>
+            </div>
+          )}
+        </div>
+      )}
+    </div>
   );
 }
 
-function PanelC({ trial }: { trial: TrialMeta }) {
+function EndpointBenchmarkTable({ trial, alerts }: { trial: TrialMeta; alerts: TriggeredAlert[] }) {
   const hasPrimary = trial.primaryOutcomes.length > 0;
   const hasSecondary = trial.secondaryOutcomes.length > 0;
 
+  if (!hasPrimary && !hasSecondary) return null;
+
+  // Build endpoint bar data
+  const bars: EndpointBar[] = [];
+
+  // Check alert evidence first for explicit PFS/OS months
+  const evidence = alerts[0]?.evidence;
+  if (evidence?.pfsTimeFrameMonths != null || evidence?.osTimeFrameMonths != null) {
+    if (evidence.pfsTimeFrameMonths != null) {
+      bars.push({
+        label: "PFS",
+        measure: "Progression-Free Survival",
+        competitorMonths: evidence.pfsTimeFrameMonths,
+        baselineMonths: evidence.pfsBaselineMonths ?? null,
+        timeFrameRaw: `${evidence.pfsTimeFrameMonths} months`,
+      });
+    }
+    if (evidence.osTimeFrameMonths != null) {
+      bars.push({
+        label: "OS",
+        measure: "Overall Survival",
+        competitorMonths: evidence.osTimeFrameMonths,
+        baselineMonths: evidence.osBaselineMonths ?? null,
+        timeFrameRaw: `${evidence.osTimeFrameMonths} months`,
+      });
+    }
+  } else {
+    // Parse from primary/secondary outcomes
+    [...trial.primaryOutcomes, ...trial.secondaryOutcomes.slice(0, 3)].forEach((outcome, idx) => {
+      const competitorMonths = parseMonths(outcome.timeFrame);
+      bars.push({
+        label: `EP ${idx + 1}`,
+        measure: outcome.measure,
+        competitorMonths,
+        baselineMonths: null,
+        timeFrameRaw: outcome.timeFrame || "—",
+      });
+    });
+  }
+
+  if (bars.length === 0) return null;
+
+  const allMonths = bars.flatMap(b => [b.competitorMonths, b.baselineMonths]).filter((m): m is number => m != null);
+  const maxMonths = allMonths.length > 0 ? Math.max(...allMonths) * 1.15 : 100;
+
+  const parseable = bars.filter(b => b.competitorMonths !== null);
+  const unparseable = bars.filter(b => b.competitorMonths === null);
+
   return (
     <Card>
       <CardHeader className="pb-2">
         <div className="flex items-center gap-2">
-          <FlaskConical className="h-4 w-4 text-teal-600" />
-          <CardTitle className="text-base">
-            Trial Protocol Intelligence — {hasPrimary ? trial.primaryOutcomes.length : 0} Primary Endpoint{trial.primaryOutcomes.length !== 1 ? "s" : ""} on Record
-          </CardTitle>
+          <AlertTriangle className="h-4 w-4 text-orange-500" />
+          <CardTitle className="text-base">Endpoint Benchmark</CardTitle>
         </div>
-        <p className="text-sm text-muted-foreground mt-0.5">
-          Live registry data from ClinicalTrials.gov. Endpoint structure reveals the sponsor's clinical thesis.
+        <p className="text-xs text-muted-foreground mt-0.5">
+          Competitor timeframes vs. baseline. Red bars = longer delay than baseline.
         </p>
       </CardHeader>
-      <CardContent className="space-y-5">
-        {/* Primary outcomes */}
-        {hasPrimary ? (
-          <div>
-            <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground mb-3">
-              Primary Endpoints
-            </p>
-            <div className="space-y-3">
-              {trial.primaryOutcomes.map((outcome, idx) => (
-                <div key={idx} className="rounded-md border border-border bg-muted/20 p-3 space-y-1">
-                  <div className="flex items-start gap-2">
-                    <span className="text-xs font-mono text-muted-foreground mt-0.5 shrink-0">{idx + 1}.</span>
-                    <div>
-                      <p className="text-sm font-semibold text-foreground leading-snug">{outcome.measure}</p>
-                      {outcome.timeFrame && (
-                        <p className="text-xs text-muted-foreground mt-0.5">
-                          <Clock className="h-3 w-3 inline mr-1" />
-                          Time frame: {outcome.timeFrame}
-                        </p>
-                      )}
-                      {outcome.description && (
-                        <p className="text-xs text-muted-foreground mt-1 leading-relaxed italic">
-                          {outcome.description}
-                        </p>
-                      )}
-                    </div>
-                  </div>
-                </div>
-              ))}
-            </div>
+      <CardContent className="space-y-0 pt-2">
+        {/* Visual bars for parseable endpoints */}
+        {parseable.length > 0 && (
+          <div className="divide-y divide-border">
+            {parseable.map((bar, idx) => (
+              <EndpointBar key={idx} bar={bar} maxMonths={maxMonths} />
+            ))}
           </div>
-        ) : (
-          <p className="text-sm text-muted-foreground italic">No primary endpoints recorded in the registry.</p>
         )}
 
-        {/* Secondary outcomes */}
-        {hasSecondary && (
-          <div>
-            <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground mb-3">
-              Secondary Endpoints (top {trial.secondaryOutcomes.length})
+        {/* Text-only table for non-parseable timeframes */}
+        {unparseable.length > 0 && (
+          <div className={`${parseable.length > 0 ? "mt-4 pt-4 border-t border-border" : ""}`}>
+            <p className="text-[10px] font-semibold uppercase tracking-widest text-muted-foreground mb-3">
+              Additional Endpoints
             </p>
             <div className="space-y-2">
-              {trial.secondaryOutcomes.map((outcome, idx) => (
-                <div key={idx} className="flex items-start gap-2 text-sm py-1.5 border-b border-border/60 last:border-0">
-                  <span className="text-xs font-mono text-muted-foreground mt-0.5 shrink-0">{idx + 1}.</span>
-                  <div>
-                    <span className="text-foreground">{outcome.measure}</span>
-                    {outcome.timeFrame && (
-                      <span className="text-muted-foreground text-xs ml-2">({outcome.timeFrame})</span>
-                    )}
+              {unparseable.map((bar, idx) => (
+                <div key={idx} className="flex items-start gap-3 text-sm py-1 border-b border-border/50 last:border-0">
+                  <span className="text-[10px] font-mono font-semibold text-muted-foreground mt-0.5 w-8 shrink-0 text-right">{bar.label}</span>
+                  <div className="flex-1 min-w-0">
+                    <span className="text-foreground">{bar.measure}</span>
+                    <span className="text-muted-foreground text-xs ml-2 font-mono">({bar.timeFrameRaw})</span>
                   </div>
                 </div>
               ))}
             </div>
           </div>
-        )}
-
-        {/* External links */}
-        <div className="flex flex-wrap gap-2 pt-2 border-t border-border">
-          <a
-            href={`https://clinicaltrials.gov/study/${trial.nctId}`}
-            target="_blank"
-            rel="noopener noreferrer"
-            className="inline-flex items-center gap-1.5 text-xs text-blue-600 hover:text-blue-700 px-3 py-1.5 rounded-md border border-blue-200 bg-blue-50 hover:bg-blue-100 transition-colors"
-          >
-            <ExternalLink className="h-3 w-3" />
-            Full Registry Entry
-          </a>
-          <a
-            href={`https://pubmed.ncbi.nlm.nih.gov/?term=${encodeURIComponent(trial.nctId)}`}
-            target="_blank"
-            rel="noopener noreferrer"
-            className="inline-flex items-center gap-1.5 text-xs text-emerald-600 hover:text-emerald-700 px-3 py-1.5 rounded-md border border-emerald-200 bg-emerald-50 hover:bg-emerald-100 transition-colors"
-          >
-            <ExternalLink className="h-3 w-3" />
-            PubMed Search
-          </a>
-          <a
-            href={`https://pubmed.ncbi.nlm.nih.gov/?term=${encodeURIComponent(trial.title)}`}
-            target="_blank"
-            rel="noopener noreferrer"
-            className="inline-flex items-center gap-1.5 text-xs text-emerald-600 hover:text-emerald-700 px-3 py-1.5 rounded-md border border-emerald-200 bg-emerald-50 hover:bg-emerald-100 transition-colors"
-          >
-            <ExternalLink className="h-3 w-3" />
-            PubMed — By Title
-          </a>
-        </div>
-
-        {/* Snapshot freshness */}
-        {trial.fetchedAt && (
-          <p className="text-[10px] text-muted-foreground">
-            Snapshot captured: {new Date(trial.fetchedAt).toLocaleString("en-US", {
-              month: "short", day: "numeric", year: "numeric",
-              hour: "numeric", minute: "2-digit", hour12: true,
-            })}
-          </p>
         )}
       </CardContent>
     </Card>
   );
+}
+
+// ── Section 4: Literature Base ────────────────────────────────────────────────
+
+function LiteratureBase({ trial, alerts }: { trial: TrialMeta; alerts: TriggeredAlert[] }) {
+  const articles = alerts.flatMap(a => a.zetaCore?.articles ?? []);
+
+  return (
+    <Card>
+      <CardHeader className="pb-2">
+        <div className="flex items-center gap-2">
+          <BookOpen className="h-4 w-4 text-slate-500" />
+          <CardTitle className="text-base">Literature Base</CardTitle>
+        </div>
+      </CardHeader>
+      <CardContent className="space-y-3">
+        {articles.length > 0 ? (
+          <div className="space-y-2">
+            {articles.map((article, idx) => (
+              <div key={idx} className="flex items-baseline gap-2 text-sm py-1.5 border-b border-border/50 last:border-0">
+                {article.pmid ? (
+                  <a
+                    href={`https://pubmed.ncbi.nlm.nih.gov/${article.pmid}`}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="font-mono text-[10px] font-bold text-blue-600 hover:text-blue-700 shrink-0 bg-blue-50 px-1.5 py-0.5 rounded border border-blue-200 hover:bg-blue-100 transition-colors"
+                  >
+                    [{article.pmid}]
+                  </a>
+                ) : (
+                  <span className="font-mono text-[10px] font-bold text-muted-foreground shrink-0 bg-muted px-1.5 py-0.5 rounded border border-border">
+                    [—]
+                  </span>
+                )}
+                <span className="text-foreground leading-snug">
+                  {article.title}
+                  {(article.journal || article.year) && (
+                    <span className="text-muted-foreground">
+                      {" "}— {[article.journal, article.year].filter(Boolean).join(" (")}
+                      {article.year ? ")" : ""}
+                    </span>
+                  )}
+                </span>
+              </div>
+            ))}
+          </div>
+        ) : (
+          <div className="space-y-2.5">
+            <p className="text-xs text-muted-foreground italic">
+              ZetaCore article extraction pending. Search PubMed directly:
+            </p>
+            <div className="flex flex-wrap gap-2">
+              <a
+                href={`https://pubmed.ncbi.nlm.nih.gov/?term=${encodeURIComponent(trial.nctId)}`}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="inline-flex items-center gap-1.5 text-xs text-blue-600 hover:text-blue-700 px-3 py-1.5 rounded-md border border-blue-200 bg-blue-50 hover:bg-blue-100 transition-colors"
+              >
+                <ExternalLink className="h-3 w-3" />
+                PubMed — {trial.nctId}
+              </a>
+              <a
+                href={`https://pubmed.ncbi.nlm.nih.gov/?term=${encodeURIComponent(trial.leadSponsor + " " + trial.conditions.slice(0, 1).join(" "))}`}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="inline-flex items-center gap-1.5 text-xs text-blue-600 hover:text-blue-700 px-3 py-1.5 rounded-md border border-blue-200 bg-blue-50 hover:bg-blue-100 transition-colors"
+              >
+                <ExternalLink className="h-3 w-3" />
+                PubMed — {trial.leadSponsor}
+              </a>
+            </div>
+            {trial.fetchedAt && (
+              <p className="text-[10px] text-muted-foreground">
+                Snapshot: {new Date(trial.fetchedAt).toLocaleString("en-US", {
+                  month: "short", day: "numeric", year: "numeric",
+                  hour: "numeric", minute: "2-digit", hour12: true,
+                })}
+              </p>
+            )}
+          </div>
+        )}
+      </CardContent>
+    </Card>
+  );
+}
+
+// ── Severity icon helper ──────────────────────────────────────────────────────
+
+function SeverityIcon({ severity }: { severity: AlertSeverity }) {
+  if (severity === "critical") return <AlertOctagon className="h-4 w-4 text-red-600" />;
+  if (severity === "high") return <AlertTriangle className="h-4 w-4 text-orange-500" />;
+  return <AlertCircle className="h-4 w-4 text-amber-400" />;
 }
 
 // ── Main page ──────────────────────────────────────────────────────────────────
@@ -580,8 +583,8 @@ export default function TargetDossier() {
   const { nctId } = useParams<{ nctId: string }>();
 
   const { data, isLoading, isError, error } = useQuery<DossierResponse>({
-    queryKey: ["dossier", nctId],
-    queryFn: () => apiFetch<DossierResponse>(`/strike/feed/${nctId}`),
+    queryKey: ["dossier-intelligence", nctId],
+    queryFn: () => apiFetch<DossierResponse>(`/strike/intelligence/${nctId}`),
     enabled: !!nctId,
     retry: 1,
   });
@@ -607,8 +610,8 @@ export default function TargetDossier() {
         {/* Loading */}
         {isLoading && (
           <div className="space-y-5">
-            <Skeleton className="h-48 w-full" />
-            <Skeleton className="h-64 w-full" />
+            <Skeleton className="h-40 w-full" />
+            <Skeleton className="h-52 w-full" />
             <Skeleton className="h-48 w-full" />
           </div>
         )}
@@ -621,36 +624,36 @@ export default function TargetDossier() {
             <p className="text-sm text-red-600 mt-1">
               {error instanceof Error ? error.message : "Unknown error"}
             </p>
-            <p className="text-xs text-red-500 mt-2">
-              Make sure this NCT ID has been scanned by the Signal Engine at least once.
-            </p>
           </div>
         )}
 
         {/* Content */}
-        {data && (
+        {data && data.trial && (
           <>
-            {/* Panel A: Executive Brief */}
-            <PanelA trial={data.trial as unknown as TrialMeta} alerts={data.alerts} />
+            {/* Section 1: Kill-Shot Header */}
+            <KillShotHeader trial={data.trial} alerts={data.alerts} />
 
-            {/* Panel B: Smoking Gun */}
-            <PanelB alerts={data.alerts} baseline={(data.trial as unknown as TrialMeta).baseline} />
-
-            {/* No alerts state */}
-            {data.alerts.length === 0 && (
-              <Card>
-                <CardContent className="py-10 text-center">
-                  <Activity className="h-8 w-8 text-muted-foreground/30 mx-auto mb-2" />
-                  <p className="text-sm text-muted-foreground font-medium">No signals detected for this trial</p>
-                  <p className="text-xs text-muted-foreground mt-1">
-                    The Signal Engine found no anomalies during the last scan cycle.
-                  </p>
-                </CardContent>
-              </Card>
+            {/* Section 2: Smoking Gun */}
+            {data.alerts.length > 0 && (
+              <SmokingGun trial={data.trial} alerts={data.alerts} />
             )}
 
-            {/* Panel C: Protocol Intelligence */}
-            <PanelC trial={data.trial as unknown as TrialMeta} />
+            {/* No-signal state */}
+            {data.alerts.length === 0 && (
+              <div className="rounded-lg border border-border bg-muted/20 p-6 text-center">
+                <SeverityIcon severity="low" />
+                <p className="text-sm text-muted-foreground font-medium mt-2">No signals detected</p>
+                <p className="text-xs text-muted-foreground mt-1">
+                  The Signal Engine found no anomalies during the last scan cycle.
+                </p>
+              </div>
+            )}
+
+            {/* Section 3: Endpoint Benchmark */}
+            <EndpointBenchmarkTable trial={data.trial} alerts={data.alerts} />
+
+            {/* Section 4: Literature Base */}
+            <LiteratureBase trial={data.trial} alerts={data.alerts} />
           </>
         )}
       </div>
