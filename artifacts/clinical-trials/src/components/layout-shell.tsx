@@ -14,7 +14,7 @@ import {
   SidebarRail,
   SidebarFooter
 } from "@/components/ui/sidebar";
-import { Settings, FileText, CheckCircle2, AlertCircle, XCircle, ClipboardList, Loader2, Eye, Radar } from "lucide-react";
+import { Settings, FileText, CheckCircle2, AlertCircle, XCircle, ClipboardList, Loader2, Eye, Radar, ShieldCheck } from "lucide-react";
 
 interface IntegrationStatus {
   label: string;
@@ -103,6 +103,14 @@ export function LayoutShell({ children }: { children: React.ReactNode }) {
                       <Link href="/strike-center">
                         <Radar className="h-4 w-4 text-teal-600" />
                         <span className="font-semibold">Competitor Intelligence</span>
+                      </Link>
+                    </SidebarMenuButton>
+                  </SidebarMenuItem>
+                  <SidebarMenuItem>
+                    <SidebarMenuButton asChild isActive={location.startsWith("/governance")}>
+                      <Link href="/governance">
+                        <ShieldCheck className="h-4 w-4 text-violet-600" />
+                        <span>Governance & Audit</span>
                       </Link>
                     </SidebarMenuButton>
                   </SidebarMenuItem>

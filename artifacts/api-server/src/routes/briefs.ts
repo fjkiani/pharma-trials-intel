@@ -1,6 +1,7 @@
 import { Router } from "express";
 import Database from "@replit/database";
 import { logger } from "../lib/logger.js";
+import { logAction } from "../services/audit/logger.js";
 import {
   createBrief,
   getBrief,
@@ -210,6 +211,13 @@ router.post(["/briefs", "/internal/draft-memo"], async (_req, res): Promise<void
     });
 
     logger.info({ briefId: brief.id, alertCount: activeAlerts.length }, "Intelligence brief created");
+    const nctIds = [...new Set(activeAlerts.map((a) => a.nctId))].join(", ");
+    await logAction(
+      nctIds,
+      "SYSTEM",
+      "BRIEF_DRAFTED",
+      `Drafted Intelligence Brief in Google Docs covering ${activeAlerts.length} alert(s) from ${[...new Set(activeAlerts.map((a) => a.nctId))].length} trial(s). Doc: ${docUrl}`,
+    );
     res.status(201).json(brief);
   } catch (err) {
     handleError(err, res);
@@ -259,6 +267,13 @@ router.post("/briefs/:id/send-to-pi", async (req, res): Promise<void> => {
       sentToPiAt: new Date().toISOString(),
     });
 
+    await logAction(
+      "",
+      "SUSAN",
+      "BRIEF_SENT_TO_PI",
+      `Intelligence Brief sent to PI at ${settings.piEmail}. Subject: ${subject}. Awaiting PI review and sign-off.`,
+    );
+
     res.json(updated);
   } catch (err) {
     handleError(err, res);
@@ -277,6 +292,8 @@ router.post("/briefs/:id/mark-approved", async (req, res): Promise<void> => {
       status: "Approved",
       approvedAt: new Date().toISOString(),
     });
+
+    await logAction("", "SUSAN", "BRIEF_APPROVED", `Intelligence Brief approved by Susan Chen. Brief ID: ${id}.`);
 
     res.json(updated);
   } catch (err) {

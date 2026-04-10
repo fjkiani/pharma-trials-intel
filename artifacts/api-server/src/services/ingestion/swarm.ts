@@ -1,6 +1,7 @@
 import Database from "@replit/database";
 import { logger } from "../../lib/logger.js";
 import { runKillChain } from "../exploitation/orchestrator.js";
+import { logAction } from "../audit/logger.js";
 import type { TriggeredAlert } from "../types.js";
 
 const db = new Database();
@@ -106,14 +107,34 @@ export async function runSwarmIngestion(nctIds: string[]): Promise<SwarmResult> 
     return result;
   }
 
+  await logAction(
+    "",
+    "SWARM_INGESTION",
+    "POLL_START",
+    `Polling ClinicalTrials.gov v2 API for ${nctIds.length} trial(s): ${nctIds.join(", ")}`,
+  );
+
   let studyMap: Map<string, unknown>;
   try {
     studyMap = await fetchTrials(nctIds);
   } catch (err) {
     logger.error({ err }, "Failed to fetch trials from ClinicalTrials.gov — aborting swarm run");
+    await logAction(
+      "",
+      "SWARM_INGESTION",
+      "POLL_ERROR",
+      `ClinicalTrials.gov fetch failed: ${err instanceof Error ? err.message : String(err)}`,
+    );
     result.failed = nctIds.length;
     return result;
   }
+
+  await logAction(
+    "",
+    "SWARM_INGESTION",
+    "POLL_COMPLETE",
+    `Scraped ${studyMap.size} trial(s) from ClinicalTrials.gov v2 API. Dispatching to kill-chain orchestrator.`,
+  );
 
   const fetchedAt = new Date().toISOString();
 
@@ -122,6 +143,7 @@ export async function runSwarmIngestion(nctIds: string[]): Promise<SwarmResult> 
       const studyData = studyMap.get(nctId);
       if (!studyData) {
         logger.warn({ nctId }, "No study data returned from ClinicalTrials.gov for NCT ID");
+        await logAction(nctId, "SWARM_INGESTION", "FETCH_MISS", `No study data returned from ClinicalTrials.gov for ${nctId}.`);
         result.failed++;
         continue;
       }
@@ -134,16 +156,20 @@ export async function runSwarmIngestion(nctIds: string[]): Promise<SwarmResult> 
       const existingBaseline = await dbGet<TrialRecord>(baselineKey(nctId));
 
       if (!existingBaseline) {
-        // First fetch: use a synthetic empty baseline so the kill-chain fires
-        // immediately for absolute-state signals (terminated, results posted,
-        // serious AEs). Real data is stored as the baseline for future delta runs.
         const syntheticBaseline = buildSyntheticBaseline(newRecord);
         logger.info({ nctId }, "First fetch — running kill-chain against synthetic baseline");
+
+        await logAction(
+          nctId,
+          "SWARM_INGESTION",
+          "FIRST_FETCH",
+          `First ingestion for ${nctId}. Storing baseline. Running kill-chain against synthetic sentinel to surface immediate signals.`,
+        );
 
         await dbSet(baselineKey(nctId), newRecord);
         await dbSet(currentKey(nctId), newRecord);
 
-        const firstAlerts: TriggeredAlert[] = await runKillChain(syntheticBaseline, newRecord);
+        const firstAlerts: TriggeredAlert[] = await runKillChain(syntheticBaseline, newRecord, nctId);
         if (firstAlerts.length > 0) {
           await dbSet(alertsKey(nctId), firstAlerts);
           result.alertsGenerated += firstAlerts.length;
@@ -154,12 +180,17 @@ export async function runSwarmIngestion(nctIds: string[]): Promise<SwarmResult> 
         continue;
       }
 
-      const alerts: TriggeredAlert[] = await runKillChain(existingBaseline, newRecord);
+      await logAction(
+        nctId,
+        "SWARM_INGESTION",
+        "DELTA_CHECK",
+        `Comparing new snapshot against stored baseline for ${nctId}. Dispatching to orchestrator.`,
+      );
+
+      const alerts: TriggeredAlert[] = await runKillChain(existingBaseline, newRecord, nctId);
 
       await dbSet(currentKey(nctId), newRecord);
 
-      // Only overwrite stored alerts if the kill-chain produced a new diff.
-      // Leaving the previous alerts in place keeps the feed populated between polls.
       if (alerts.length > 0) {
         await dbSet(alertsKey(nctId), alerts);
         result.alertsGenerated += alerts.length;
@@ -170,6 +201,7 @@ export async function runSwarmIngestion(nctIds: string[]): Promise<SwarmResult> 
       logger.info({ nctId, alerts: alerts.length }, "Kill-chain complete");
     } catch (err) {
       logger.error({ nctId, err }, "Swarm ingestion failed for NCT ID");
+      await logAction(nctId, "SWARM_INGESTION", "ERROR", `Processing error for ${nctId}: ${err instanceof Error ? err.message : String(err)}`);
       result.failed++;
     }
   }

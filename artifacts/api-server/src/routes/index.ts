@@ -9,6 +9,7 @@ import watchlistRouter from "./watchlist.js";
 import briefsRouter from "./briefs.js";
 import connectionsRouter from "./connections.js";
 import strikeRouter from "./strike.js";
+import auditRouter from "./audit.js";
 
 const router: IRouter = Router();
 
@@ -22,5 +23,6 @@ router.use(watchlistRouter);
 router.use(briefsRouter);
 router.use(connectionsRouter);
 router.use(strikeRouter);
+router.use(auditRouter);
 
 export default router;
