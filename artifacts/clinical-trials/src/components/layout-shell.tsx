@@ -1,4 +1,4 @@
-import React from "react";
+import React, { useEffect, useState } from "react";
 import { Link, useLocation } from "wouter";
 import { 
   Sidebar, 
@@ -14,16 +14,69 @@ import {
   SidebarRail,
   SidebarFooter
 } from "@/components/ui/sidebar";
-import { Settings, FileText, CheckCircle2, AlertCircle, ClipboardList, Eye, Radar } from "lucide-react";
-import { useGetSettings, getGetSettingsQueryKey } from "@workspace/api-client-react";
+import { Settings, FileText, CheckCircle2, AlertCircle, XCircle, ClipboardList, Loader2, Eye, Radar } from "lucide-react";
+
+interface IntegrationStatus {
+  label: string;
+  connected: boolean;
+  degraded?: boolean;
+  statusReason?: string | null;
+}
+
+interface HealthResponse {
+  notion?: IntegrationStatus;
+  googleSheets?: IntegrationStatus;
+  googleDocs?: IntegrationStatus;
+  gmail?: IntegrationStatus;
+  googleCalendar?: IntegrationStatus;
+}
+
+function useLiveHealth() {
+  const [status, setStatus] = useState<HealthResponse | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [failingServices, setFailingServices] = useState<string[]>([]);
+
+  const fetchHealth = async () => {
+    try {
+      const res = await fetch("/api/integrations/status");
+      if (!res.ok) throw new Error("status fetch failed");
+      const data = (await res.json()) as HealthResponse;
+      setStatus(data);
+
+      const failing: string[] = [];
+      for (const [, svc] of Object.entries(data)) {
+        const s = svc as IntegrationStatus;
+        if (!s.connected) failing.push(s.label);
+        else if (s.degraded && s.statusReason) failing.push(s.statusReason);
+      }
+      setFailingServices(failing);
+    } catch {
+      setFailingServices(["Health check unreachable"]);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    fetchHealth();
+    const interval = setInterval(fetchHealth, 60_000);
+    return () => clearInterval(interval);
+  }, []);
+
+  const allConnected =
+    status !== null &&
+    Object.values(status).every((s) => {
+      const svc = s as IntegrationStatus;
+      return svc.connected && !svc.degraded;
+    }) &&
+    failingServices.length === 0;
+
+  return { status, loading, allConnected, failingServices };
+}
 
 export function LayoutShell({ children }: { children: React.ReactNode }) {
   const [location] = useLocation();
-  const { data: settings } = useGetSettings({ 
-    query: { enabled: true, queryKey: getGetSettingsQueryKey() } 
-  });
-
-  const isConfigured = settings && settings.notionRegulatoryDbId && settings.googleCalendarId;
+  const { loading, allConnected, failingServices } = useLiveHealth();
 
   return (
     <SidebarProvider>
@@ -81,7 +134,7 @@ export function LayoutShell({ children }: { children: React.ReactNode }) {
                     <SidebarMenuButton asChild isActive={location.startsWith("/settings")}>
                       <Link href="/settings">
                         <Settings className="h-4 w-4" />
-                        <span>Settings</span>
+                        <span>Connection Setup</span>
                       </Link>
                     </SidebarMenuButton>
                   </SidebarMenuItem>
@@ -90,17 +143,32 @@ export function LayoutShell({ children }: { children: React.ReactNode }) {
             </SidebarGroup>
           </SidebarContent>
           <SidebarFooter className="p-4 border-t border-sidebar-border">
-            <div className="flex items-center gap-2 px-2 text-sm text-sidebar-foreground/80">
-              {isConfigured ? (
-                <>
+            <div className="px-2 text-sm text-sidebar-foreground/80 space-y-1">
+              {loading ? (
+                <div className="flex items-center gap-2">
+                  <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" />
+                  <span className="text-xs">Checking systems…</span>
+                </div>
+              ) : allConnected ? (
+                <div className="flex items-center gap-2">
                   <CheckCircle2 className="h-4 w-4 text-green-500" />
                   <span>Systems Connected</span>
-                </>
+                </div>
+              ) : failingServices.length > 0 ? (
+                <div className="space-y-1">
+                  <div className="flex items-center gap-2">
+                    <AlertCircle className="h-4 w-4 text-amber-500 shrink-0" />
+                    <span className="text-xs font-medium">Degraded</span>
+                  </div>
+                  {failingServices.slice(0, 3).map((msg, i) => (
+                    <p key={i} className="text-xs text-sidebar-foreground/60 pl-6 leading-tight">{msg}</p>
+                  ))}
+                </div>
               ) : (
-                <>
-                  <AlertCircle className="h-4 w-4 text-amber-500" />
+                <div className="flex items-center gap-2">
+                  <XCircle className="h-4 w-4 text-red-500" />
                   <span>Setup Required</span>
-                </>
+                </div>
               )}
             </div>
           </SidebarFooter>

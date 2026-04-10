@@ -7,6 +7,7 @@ import integrationsRouter from "./integrations.js";
 import swarmRouter from "./swarm.js";
 import watchlistRouter from "./watchlist.js";
 import briefsRouter from "./briefs.js";
+import connectionsRouter from "./connections.js";
 
 const router: IRouter = Router();
 
@@ -18,5 +19,6 @@ router.use(integrationsRouter);
 router.use(swarmRouter);
 router.use(watchlistRouter);
 router.use(briefsRouter);
+router.use(connectionsRouter);
 
 export default router;
