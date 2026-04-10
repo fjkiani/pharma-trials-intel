@@ -1,11 +1,13 @@
-import { useState, useCallback } from "react";
+import { useState, useCallback, useEffect } from "react";
 import { LayoutShell } from "@/components/layout-shell";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
 import { useToast } from "@/hooks/use-toast";
-import { CheckCircle2, AlertCircle, XCircle, RefreshCw, ChevronRight, Loader2 } from "lucide-react";
+import { CheckCircle2, AlertCircle, XCircle, RefreshCw, ChevronRight, Loader2, Database } from "lucide-react";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
 import { getApiUrl } from "@/lib/api";
 
 const BASE = getApiUrl();
@@ -121,6 +123,38 @@ export default function Settings() {
   const [audit, setAudit] = useState<AuditEntry[]>([]);
   const [loadingAudit, setLoadingAudit] = useState(false);
   const [auditLoaded, setAuditLoaded] = useState(false);
+
+  // Notion C2 settings
+  const [notionCompetitorDbId, setNotionCompetitorDbId] = useState("");
+  const [notionTasksDbId, setNotionTasksDbId] = useState("");
+  const [c2Saving, setC2Saving] = useState(false);
+
+  useEffect(() => {
+    fetch(`${BASE}settings`)
+      .then(r => r.json())
+      .then((s: { notionCompetitorDbId?: string; notionTasksDbId?: string }) => {
+        if (s.notionCompetitorDbId) setNotionCompetitorDbId(s.notionCompetitorDbId);
+        if (s.notionTasksDbId) setNotionTasksDbId(s.notionTasksDbId);
+      })
+      .catch(() => {});
+  }, []);
+
+  const handleSaveC2 = async () => {
+    setC2Saving(true);
+    try {
+      const res = await fetch(`${BASE}settings`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ notionCompetitorDbId, notionTasksDbId }),
+      });
+      if (!res.ok) throw new Error(`Save failed: ${res.status}`);
+      toast({ title: "Notion C2 settings saved", description: "Intelligence sink and task database configured." });
+    } catch (e) {
+      toast({ title: "Save failed", description: e instanceof Error ? e.message : "Unknown error", variant: "destructive" });
+    } finally {
+      setC2Saving(false);
+    }
+  };
 
   const loadAudit = useCallback(async () => {
     setLoadingAudit(true);
@@ -503,6 +537,60 @@ export default function Settings() {
             </CardContent>
           </Card>
         )}
+
+        {/* Notion C2 Write-Back Config */}
+        <Card>
+          <CardHeader>
+            <div className="flex items-center gap-2">
+              <Database className="h-5 w-5 text-violet-600" />
+              <CardTitle className="text-base">Notion Command & Control</CardTitle>
+            </div>
+            <CardDescription>
+              When a brief is generated, the Signal Engine will write intelligence pages and action tasks directly into these Notion databases. Paste the 32-character Notion database IDs below.
+            </CardDescription>
+          </CardHeader>
+          <CardContent className="space-y-4">
+            <div className="space-y-1.5">
+              <Label htmlFor="competitorDbId" className="text-sm font-medium">
+                Competitor Intelligence DB
+              </Label>
+              <p className="text-xs text-muted-foreground">
+                Each brief creates a new page here — title, severity tags, Zeta-Core verdict, trial sections, smoking gun quotes.
+              </p>
+              <Input
+                id="competitorDbId"
+                placeholder="Notion database ID (e.g. 33d95050...)"
+                value={notionCompetitorDbId}
+                onChange={e => setNotionCompetitorDbId(e.target.value)}
+                className="font-mono text-sm"
+              />
+            </div>
+            <div className="space-y-1.5">
+              <Label htmlFor="tasksDbId" className="text-sm font-medium">
+                Action Items / Tasks DB
+              </Label>
+              <p className="text-xs text-muted-foreground">
+                For every CRITICAL or HIGH trial signal, a task row is injected — title includes drug name + failure vector, due date is today + 2 days.
+              </p>
+              <Input
+                id="tasksDbId"
+                placeholder="Notion database ID (e.g. a1b2c3d4...)"
+                value={notionTasksDbId}
+                onChange={e => setNotionTasksDbId(e.target.value)}
+                className="font-mono text-sm"
+              />
+            </div>
+            <Button
+              onClick={handleSaveC2}
+              disabled={c2Saving || (!notionCompetitorDbId && !notionTasksDbId)}
+              className="gap-2"
+              size="sm"
+            >
+              {c2Saving ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Database className="h-3.5 w-3.5" />}
+              {c2Saving ? "Saving…" : "Save Notion C2 Config"}
+            </Button>
+          </CardContent>
+        </Card>
 
         {/* Audit Log Panel */}
         <Card>

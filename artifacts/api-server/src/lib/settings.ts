@@ -40,6 +40,8 @@ export interface AppSettings {
   googleCalendarId: string;
   notionAeLogDbId: string;
   notionDeviationLogDbId: string;
+  notionCompetitorDbId: string;
+  notionTasksDbId: string;
   googleSheetsId: string;
   googleSheetTab: string;
   googleSheetHeaderRow: number;
@@ -54,6 +56,8 @@ const DEFAULT_SETTINGS: AppSettings = {
   notionRegulatoryDbId: "",
   notionAeLogDbId: "",
   notionDeviationLogDbId: "",
+  notionCompetitorDbId: "",
+  notionTasksDbId: "",
   googleCalendarId: "",
   sponsorCallEventId: "",
   googleSheetsId: "",

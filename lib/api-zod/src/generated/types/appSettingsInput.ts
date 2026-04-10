@@ -11,6 +11,8 @@ export interface AppSettingsInput {
   googleCalendarId?: string;
   notionAeLogDbId?: string;
   notionDeviationLogDbId?: string;
+  notionCompetitorDbId?: string;
+  notionTasksDbId?: string;
   googleSheetsId?: string;
   googleSheetTab?: string;
   googleSheetHeaderRow?: number;

@@ -337,13 +337,81 @@ router.post(["/briefs", "/internal/draft-memo"], async (_req, res): Promise<void
     });
 
     logger.info({ briefId: brief.id, alertCount: activeAlerts.length }, "Intelligence brief created");
-    const nctIds = [...new Set(activeAlerts.map((a) => a.nctId))].join(", ");
+    const uniqueNctIds = [...new Set(activeAlerts.map((a) => a.nctId))];
+    const nctIds = uniqueNctIds.join(", ");
     await logAction(
       nctIds,
       "SYSTEM",
       "BRIEF_DRAFTED",
-      `Drafted Intelligence Brief in Google Docs covering ${activeAlerts.length} alert(s) from ${[...new Set(activeAlerts.map((a) => a.nctId))].length} trial(s). Doc: ${docUrl}`,
+      `Drafted Intelligence Brief in Google Docs covering ${activeAlerts.length} alert(s) from ${uniqueNctIds.length} trial(s). Doc: ${docUrl}`,
     );
+
+    // ── Notion C2 Write-Back (fire-and-forget) ────────────────────────────────
+    (async () => {
+      try {
+        const settings = await getSettings();
+        const competitorDbId = process.env.NOTION_COMPETITOR_DB_ID || settings.notionCompetitorDbId;
+        const tasksDbId = process.env.NOTION_TASKS_DB_ID || settings.notionTasksDbId;
+
+        if (!competitorDbId && !tasksDbId) return;
+
+        const { getUncachableNotionClient } = await import("../lib/notionClient.js");
+        const { injectNotionBrief, injectNotionTask } = await import("../lib/notionIntelligence.js");
+
+        const notion = getUncachableNotionClient();
+
+        // Build trial metadata map from DB
+        const trialMeta = new Map<string, { nctId: string; studyTitle: string; sponsor: string; status: string; phase: string; whyStopped: string | null; primaryCompletion: string }>();
+        for (const nctId of uniqueNctIds) {
+          const snap = await dbGet<{ protocolSection?: {
+            identificationModule?: { briefTitle?: string; officialTitle?: string };
+            statusModule?: { overallStatus?: string; whyStopped?: string; primaryCompletionDateStruct?: { date?: string } };
+            sponsorCollaboratorsModule?: { leadSponsor?: { name?: string } };
+            designModule?: { phases?: string[] };
+          } }>(`trial:current:${nctId}`);
+          const ps = snap?.protocolSection;
+          trialMeta.set(nctId, {
+            nctId,
+            studyTitle: ps?.identificationModule?.briefTitle ?? ps?.identificationModule?.officialTitle ?? nctId,
+            sponsor: ps?.sponsorCollaboratorsModule?.leadSponsor?.name ?? "Unknown",
+            status: ps?.statusModule?.overallStatus ?? "UNKNOWN",
+            phase: (ps?.designModule?.phases ?? []).join("/") || "N/A",
+            whyStopped: ps?.statusModule?.whyStopped ?? null,
+            primaryCompletion: ps?.statusModule?.primaryCompletionDateStruct?.date ?? "—",
+          });
+        }
+
+        // 1. Write intelligence brief page to Competitor DB
+        if (competitorDbId) {
+          await injectNotionBrief(notion, competitorDbId, activeAlerts, trialMeta, docUrl);
+        }
+
+        // 2. Create action tasks for HIGH/CRITICAL alerts (one per trial, worst signal only)
+        if (tasksDbId) {
+          const seenNct = new Set<string>();
+          const sortedByPriority = [...activeAlerts].sort(
+            (a, b) => ({ critical: 0, high: 1, medium: 2, low: 3 }[a.severity] ?? 9) -
+                      ({ critical: 0, high: 1, medium: 2, low: 3 }[b.severity] ?? 9),
+          );
+          for (const alert of sortedByPriority) {
+            if (alert.severity !== "critical" && alert.severity !== "high") continue;
+            if (seenNct.has(alert.nctId)) continue;
+            seenNct.add(alert.nctId);
+            await injectNotionTask(notion, tasksDbId, alert, trialMeta.get(alert.nctId), docUrl);
+          }
+        }
+
+        await logAction(
+          nctIds,
+          "SYSTEM",
+          "BRIEF_DRAFTED",
+          `Notion C2 write-back complete — competitor brief and ${[...activeAlerts].filter(a => a.severity === "critical" || a.severity === "high").length} action task(s) injected.`,
+        );
+      } catch (notionErr) {
+        logger.warn({ notionErr }, "Notion C2 write-back failed — non-fatal, brief already saved");
+      }
+    })();
+
     res.status(201).json(brief);
   } catch (err) {
     handleError(err, res);
