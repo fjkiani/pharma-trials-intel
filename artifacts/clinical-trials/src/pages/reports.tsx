@@ -347,11 +347,18 @@ export default function SponsorReports() {
     queryFn: async () => {
       const res = await fetch("/api/integrations/status");
       if (!res.ok) return null;
-      return res.json() as Promise<{ gmail?: { connected: boolean; needsReconnect?: boolean } }>;
+      return res.json() as Promise<{
+        gmail?: { connected: boolean; needsReconnect?: boolean };
+        googleSheets?: { connected: boolean; needsReconnect?: boolean };
+        googleDocs?: { connected: boolean; needsReconnect?: boolean };
+      }>;
     },
     staleTime: 60_000,
   });
   const gmailNeedsReconnect = integrationStatus?.gmail?.needsReconnect === true;
+  const driveNeedsReconnect =
+    integrationStatus?.googleSheets?.needsReconnect === true ||
+    integrationStatus?.googleDocs?.needsReconnect === true;
 
   function invalidateReports() {
     queryClient.invalidateQueries({ queryKey: getListReportsQueryKey() });
@@ -479,6 +486,23 @@ export default function SponsorReports() {
             </Button>
           </div>
         </div>
+
+        {driveNeedsReconnect && (
+          <div className="flex items-start gap-2 rounded-md border border-red-200 bg-red-50 p-4 text-sm text-red-800">
+            <AlertTriangle className="h-4 w-4 mt-0.5 shrink-0 text-red-500" />
+            <div>
+              <p className="font-semibold">Google Drive reconnection required</p>
+              <p className="text-xs mt-1">
+                Google Sheets and Docs access is failing (401). Report generation will fail until you reconnect.
+              </p>
+              <ol className="text-xs mt-2 space-y-0.5 list-decimal list-inside text-red-700">
+                <li>Open the <strong>Replit integrations panel</strong> (top-right of the Replit editor).</li>
+                <li>Find <strong>Google Drive</strong> and click <strong>Disconnect</strong>.</li>
+                <li>Click <strong>Connect</strong> again and accept all permission scopes when prompted.</li>
+              </ol>
+            </div>
+          </div>
+        )}
 
         {gmailNeedsReconnect && (
           <div className="flex items-start gap-2 rounded-md border border-red-200 bg-red-50 p-4 text-sm text-red-800">

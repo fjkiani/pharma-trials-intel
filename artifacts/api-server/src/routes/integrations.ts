@@ -25,7 +25,7 @@ async function probeNotion(s: Awaited<ReturnType<typeof getSettings>>): Promise<
   }
 }
 
-async function probeGoogleSheets(s: Awaited<ReturnType<typeof getSettings>>): Promise<{ connected: boolean; reason?: string }> {
+async function probeGoogleSheets(s: Awaited<ReturnType<typeof getSettings>>): Promise<{ connected: boolean; reason?: string; needsReconnect?: boolean }> {
   if (!s.googleSheetsId) return { connected: false, reason: "Google Sheets ID not configured" };
   try {
     const res = await driveProxy(`/drive/v3/files/${s.googleSheetsId}/export`, {
@@ -33,15 +33,26 @@ async function probeGoogleSheets(s: Awaited<ReturnType<typeof getSettings>>): Pr
     });
     if (!res.ok) {
       const text = await (res as Response).text();
+      if (res.status === 401 || res.status === 403) {
+        return {
+          connected: false,
+          needsReconnect: true,
+          reason: "Google Drive reconnection required — disconnect and reconnect 'Google Drive' in the Replit integrations panel.",
+        };
+      }
       return { connected: false, reason: `Sheets export failed (${res.status}): ${text.slice(0, 120)}` };
     }
     return { connected: true };
   } catch (e) {
-    return { connected: false, reason: `Sheets error: ${e instanceof Error ? e.message.slice(0, 120) : String(e)}` };
+    const msg = e instanceof Error ? e.message : String(e);
+    if (msg.includes("not connected") || msg.includes("not found")) {
+      return { connected: false, needsReconnect: true, reason: "Google Drive not connected — add it in the Replit integrations panel." };
+    }
+    return { connected: false, reason: `Sheets error: ${msg.slice(0, 120)}` };
   }
 }
 
-async function probeGoogleDocs(s: Awaited<ReturnType<typeof getSettings>>): Promise<{ connected: boolean; reason?: string }> {
+async function probeGoogleDocs(s: Awaited<ReturnType<typeof getSettings>>): Promise<{ connected: boolean; reason?: string; needsReconnect?: boolean }> {
   if (!s.googleDocsTemplateId) return { connected: false, reason: "Google Docs template ID not configured" };
   try {
     const res = await driveProxy(`/drive/v3/files/${s.googleDocsTemplateId}`, {
@@ -49,11 +60,22 @@ async function probeGoogleDocs(s: Awaited<ReturnType<typeof getSettings>>): Prom
     });
     if (!res.ok) {
       const text = await (res as Response).text();
+      if (res.status === 401 || res.status === 403) {
+        return {
+          connected: false,
+          needsReconnect: true,
+          reason: "Google Drive reconnection required — disconnect and reconnect 'Google Drive' in the Replit integrations panel.",
+        };
+      }
       return { connected: false, reason: `Docs (via Drive) file check failed (${res.status}): ${text.slice(0, 120)}` };
     }
     return { connected: true, reason: "Routes through google-drive connector by design (Docs connector has no configured connection)." };
   } catch (e) {
-    return { connected: false, reason: `Docs error: ${e instanceof Error ? e.message.slice(0, 120) : String(e)}` };
+    const msg = e instanceof Error ? e.message : String(e);
+    if (msg.includes("not connected") || msg.includes("not found")) {
+      return { connected: false, needsReconnect: true, reason: "Google Drive not connected — add it in the Replit integrations panel." };
+    }
+    return { connected: false, reason: `Docs error: ${msg.slice(0, 120)}` };
   }
 }
 
@@ -67,12 +89,15 @@ async function probeGmail(): Promise<{ connected: boolean; reason?: string; need
     return { connected: true };
   } catch (e) {
     const msg = e instanceof Error ? e.message : String(e);
+    const isNotConnected = msg.includes("not connected") || msg.includes("not found");
     const isScope = msg.toLowerCase().includes("insufficient") || msg.toLowerCase().includes("scope");
-    if (isScope) {
+    if (isNotConnected || isScope) {
       return {
         connected: false,
         needsReconnect: true,
-        reason: "Gmail needs reconnection — go to Replit integrations, disconnect Google Mail, then reconnect it to grant send permissions.",
+        reason: isNotConnected
+          ? "Google Mail not connected — add it in the Replit integrations panel."
+          : "Gmail needs reconnection — disconnect and reconnect 'Google Mail' in the Replit integrations panel to grant send permissions.",
       };
     }
     return { connected: false, reason: `Gmail error: ${msg.slice(0, 120)}` };
@@ -157,6 +182,7 @@ router.get("/integrations/status", async (_req, res): Promise<void> => {
       label: "Google Sheets",
       connected: sheetsProbe.connected,
       degraded: false,
+      needsReconnect: (sheetsProbe as { needsReconnect?: boolean }).needsReconnect ?? false,
       statusReason: sheetsProbe.reason ?? null,
       description: "Live enrollment data for the trial",
       provides: [
@@ -175,6 +201,7 @@ router.get("/integrations/status", async (_req, res): Promise<void> => {
       label: "Google Docs",
       connected: docsProbe.connected,
       degraded: false,
+      needsReconnect: (docsProbe as { needsReconnect?: boolean }).needsReconnect ?? false,
       statusReason: docsProbe.reason ?? null,
       description: "Sponsor report template — copied and auto-filled per run",
       provides: [
