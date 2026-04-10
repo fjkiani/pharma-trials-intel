@@ -41,11 +41,14 @@ interface TriggeredAlert {
   severity: AlertSeverity;
   headline: string;
   detail: string;
+  vector?: string;
   evidence?: {
     pfsTimeFrameMonths?: number | null;
     osTimeFrameMonths?: number | null;
     pfsBaselineMonths?: number | null;
     osBaselineMonths?: number | null;
+    previousPfsTimeFrameString?: string | null;
+    previousOsTimeFrameString?: string | null;
   };
   zetaCore?: {
     evidenceTier?: string;
@@ -316,9 +319,9 @@ function SmokingGun({ trial, alerts }: { trial: TrialMeta; alerts: TriggeredAler
   );
 }
 
-// ── Section 3: Endpoint Benchmark Table ──────────────────────────────────────
+// ── Section 3: Endpoint Timelines / Benchmark ────────────────────────────────
 
-interface EndpointBar {
+interface EndpointBarData {
   label: string;
   measure: string;
   competitorMonths: number | null;
@@ -326,28 +329,65 @@ interface EndpointBar {
   timeFrameRaw: string;
 }
 
-function EndpointBar({ bar, maxMonths }: { bar: EndpointBar; maxMonths: number }) {
-  const competitorPct = bar.competitorMonths != null ? Math.min((bar.competitorMonths / maxMonths) * 100, 100) : null;
-  const baselinePct = bar.baselineMonths != null ? Math.min((bar.baselineMonths / maxMonths) * 100, 100) : null;
-  const delta = bar.competitorMonths != null && bar.baselineMonths != null
-    ? bar.competitorMonths - bar.baselineMonths
-    : null;
+function EndpointBarRow({
+  bar,
+  maxMonths,
+  isGoalpostShift,
+}: {
+  bar: EndpointBarData;
+  maxMonths: number;
+  isGoalpostShift: boolean;
+}) {
+  const competitorPct =
+    bar.competitorMonths != null
+      ? Math.min((bar.competitorMonths / maxMonths) * 100, 100)
+      : null;
+  const baselinePct =
+    bar.baselineMonths != null
+      ? Math.min((bar.baselineMonths / maxMonths) * 100, 100)
+      : null;
+
+  // Delta only meaningful when we have both bars (Condition A)
+  const delta =
+    isGoalpostShift &&
+    bar.competitorMonths != null &&
+    bar.baselineMonths != null
+      ? bar.competitorMonths - bar.baselineMonths
+      : null;
+
+  // Competitor bar color: red = goalpost moved later, green = moved earlier, blue = no comparison
+  const competitorBarCls =
+    delta !== null && delta > 0
+      ? "bg-red-400"
+      : delta !== null && delta < 0
+        ? "bg-emerald-500"
+        : "bg-blue-400";
 
   return (
     <div className="space-y-1.5 py-3 border-b border-border last:border-0">
+      {/* Endpoint meta */}
       <div className="flex items-start justify-between gap-3">
         <div className="flex-1 min-w-0">
-          <p className="text-[10px] font-semibold uppercase tracking-widest text-muted-foreground">{bar.label}</p>
-          <p className="text-sm font-medium text-foreground leading-snug mt-0.5 line-clamp-2">{bar.measure}</p>
+          <p className="text-[10px] font-semibold uppercase tracking-widest text-muted-foreground">
+            {bar.label}
+          </p>
+          <p className="text-sm font-medium text-foreground leading-snug mt-0.5 line-clamp-2">
+            {bar.measure}
+          </p>
           <p className="text-[10px] text-muted-foreground mt-0.5">{bar.timeFrameRaw}</p>
         </div>
+        {/* Delta badge — only shown when we have a real baseline to compare */}
         {delta !== null && (
-          <div className={`shrink-0 text-right`}>
-            <span className={`text-sm font-bold font-mono ${delta > 0 ? "text-red-600" : delta < 0 ? "text-emerald-600" : "text-muted-foreground"}`}>
+          <div className="shrink-0 text-right">
+            <span
+              className={`text-sm font-bold font-mono ${delta > 0 ? "text-red-600" : delta < 0 ? "text-emerald-600" : "text-muted-foreground"}`}
+            >
               {delta > 0 ? `+${delta}` : delta < 0 ? `${delta}` : "±0"} mo
             </span>
             {delta !== 0 && (
-              <p className={`text-[10px] font-semibold ${delta > 0 ? "text-red-500" : "text-emerald-500"}`}>
+              <p
+                className={`text-[10px] font-semibold ${delta > 0 ? "text-red-500" : "text-emerald-500"}`}
+              >
                 {delta > 0 ? "DELAY" : "AHEAD"}
               </p>
             )}
@@ -356,124 +396,171 @@ function EndpointBar({ bar, maxMonths }: { bar: EndpointBar; maxMonths: number }
       </div>
 
       {/* Bars */}
-      {(competitorPct !== null || baselinePct !== null) && (
+      {competitorPct !== null && (
         <div className="space-y-1 mt-2">
-          {baselinePct !== null && (
+          {/* Condition A only: gray ORIGINAL bar */}
+          {isGoalpostShift && baselinePct !== null && (
             <div className="flex items-center gap-2">
-              <span className="text-[9px] text-muted-foreground w-16 shrink-0 text-right font-mono">BASELINE</span>
+              <span className="text-[9px] text-muted-foreground w-16 shrink-0 text-right font-mono">
+                ORIGINAL
+              </span>
               <div className="flex-1 h-3 bg-muted rounded-sm overflow-hidden">
                 <div
                   className="h-full bg-slate-400 rounded-sm transition-all"
                   style={{ width: `${baselinePct}%` }}
                 />
               </div>
-              <span className="text-[9px] font-mono text-muted-foreground w-12 shrink-0">{bar.baselineMonths} mo</span>
+              <span className="text-[9px] font-mono text-muted-foreground w-12 shrink-0">
+                {bar.baselineMonths} mo
+              </span>
             </div>
           )}
-          {competitorPct !== null && (
-            <div className="flex items-center gap-2">
-              <span className="text-[9px] text-muted-foreground w-16 shrink-0 text-right font-mono">COMPETITOR</span>
-              <div className="flex-1 h-3 bg-muted rounded-sm overflow-hidden">
-                <div
-                  className={`h-full rounded-sm transition-all ${delta !== null && delta > 0 ? "bg-red-400" : delta !== null && delta < 0 ? "bg-emerald-500" : "bg-blue-400"}`}
-                  style={{ width: `${competitorPct}%` }}
-                />
-              </div>
-              <span className="text-[9px] font-mono text-muted-foreground w-12 shrink-0">{bar.competitorMonths} mo</span>
+
+          {/* Competitor / current bar */}
+          <div className="flex items-center gap-2">
+            {/* Label: "CURRENT" when benchmarking, empty otherwise */}
+            <span className="text-[9px] text-muted-foreground w-16 shrink-0 text-right font-mono">
+              {isGoalpostShift ? "CURRENT" : ""}
+            </span>
+            <div className="flex-1 h-3 bg-muted rounded-sm overflow-hidden">
+              <div
+                className={`h-full rounded-sm transition-all ${competitorBarCls}`}
+                style={{ width: `${competitorPct}%` }}
+              />
             </div>
-          )}
+            <span className="text-[9px] font-mono text-muted-foreground w-12 shrink-0">
+              {bar.competitorMonths} mo
+            </span>
+          </div>
         </div>
       )}
     </div>
   );
 }
 
-function EndpointBenchmarkTable({ trial, alerts }: { trial: TrialMeta; alerts: TriggeredAlert[] }) {
+function EndpointSection({ trial, alerts }: { trial: TrialMeta; alerts: TriggeredAlert[] }) {
   const hasPrimary = trial.primaryOutcomes.length > 0;
   const hasSecondary = trial.secondaryOutcomes.length > 0;
 
   if (!hasPrimary && !hasSecondary) return null;
 
-  // Build endpoint bar data
-  const bars: EndpointBar[] = [];
+  // Condition A: any alert carries vector === 'GOALPOST_SHIFT'
+  const goalpostAlert = alerts.find(a => a.vector === "GOALPOST_SHIFT");
+  const isGoalpostShift = !!goalpostAlert;
 
-  // Check alert evidence first for explicit PFS/OS months
-  const evidence = alerts[0]?.evidence;
-  if (evidence?.pfsTimeFrameMonths != null || evidence?.osTimeFrameMonths != null) {
-    if (evidence.pfsTimeFrameMonths != null) {
+  const bars: EndpointBarData[] = [];
+
+  if (isGoalpostShift && goalpostAlert?.evidence) {
+    const ev = goalpostAlert.evidence;
+
+    // PFS
+    const pfsCurrent = ev.pfsTimeFrameMonths ?? null;
+    const pfsBaseline =
+      ev.pfsBaselineMonths ??
+      parseMonths(ev.previousPfsTimeFrameString ?? null);
+    if (pfsCurrent != null) {
       bars.push({
         label: "PFS",
         measure: "Progression-Free Survival",
-        competitorMonths: evidence.pfsTimeFrameMonths,
-        baselineMonths: evidence.pfsBaselineMonths ?? null,
-        timeFrameRaw: `${evidence.pfsTimeFrameMonths} months`,
+        competitorMonths: pfsCurrent,
+        baselineMonths: pfsBaseline,
+        timeFrameRaw: `${pfsCurrent} months`,
       });
     }
-    if (evidence.osTimeFrameMonths != null) {
+
+    // OS
+    const osCurrent = ev.osTimeFrameMonths ?? null;
+    const osBaseline =
+      ev.osBaselineMonths ??
+      parseMonths(ev.previousOsTimeFrameString ?? null);
+    if (osCurrent != null) {
       bars.push({
         label: "OS",
         measure: "Overall Survival",
-        competitorMonths: evidence.osTimeFrameMonths,
-        baselineMonths: evidence.osBaselineMonths ?? null,
-        timeFrameRaw: `${evidence.osTimeFrameMonths} months`,
+        competitorMonths: osCurrent,
+        baselineMonths: osBaseline,
+        timeFrameRaw: `${osCurrent} months`,
       });
     }
-  } else {
-    // Parse from primary/secondary outcomes
-    [...trial.primaryOutcomes, ...trial.secondaryOutcomes.slice(0, 3)].forEach((outcome, idx) => {
-      const competitorMonths = parseMonths(outcome.timeFrame);
-      bars.push({
-        label: `EP ${idx + 1}`,
-        measure: outcome.measure,
-        competitorMonths,
-        baselineMonths: null,
-        timeFrameRaw: outcome.timeFrame || "—",
-      });
-    });
+  }
+
+  // If no explicit evidence bars (either Condition B, or Condition A without
+  // explicit month values), fall back to parsing primary/secondary outcomes.
+  // In Condition B, baselineMonths is always null — no fake comparator.
+  if (bars.length === 0) {
+    [...trial.primaryOutcomes, ...trial.secondaryOutcomes.slice(0, 3)].forEach(
+      (outcome, idx) => {
+        bars.push({
+          label: `EP ${idx + 1}`,
+          measure: outcome.measure,
+          competitorMonths: parseMonths(outcome.timeFrame),
+          baselineMonths: null, // no baseline for Condition B
+          timeFrameRaw: outcome.timeFrame || "—",
+        });
+      },
+    );
   }
 
   if (bars.length === 0) return null;
 
-  const allMonths = bars.flatMap(b => [b.competitorMonths, b.baselineMonths]).filter((m): m is number => m != null);
+  const allMonths = bars
+    .flatMap(b => [b.competitorMonths, b.baselineMonths])
+    .filter((m): m is number => m != null);
   const maxMonths = allMonths.length > 0 ? Math.max(...allMonths) * 1.15 : 100;
 
   const parseable = bars.filter(b => b.competitorMonths !== null);
   const unparseable = bars.filter(b => b.competitorMonths === null);
+
+  // Condition A labels
+  const title = isGoalpostShift ? "Endpoint Benchmark" : "Clinical Endpoint Timelines";
+  const subtitle = isGoalpostShift
+    ? "Competitor timeframes vs. original protocol baseline. Red = goalpost moved later. Green = moved earlier."
+    : null;
 
   return (
     <Card>
       <CardHeader className="pb-2">
         <div className="flex items-center gap-2">
           <AlertTriangle className="h-4 w-4 text-orange-500" />
-          <CardTitle className="text-base">Endpoint Benchmark</CardTitle>
+          <CardTitle className="text-base">{title}</CardTitle>
         </div>
-        <p className="text-xs text-muted-foreground mt-0.5">
-          Competitor timeframes vs. baseline. Red bars = longer delay than baseline.
-        </p>
+        {subtitle && (
+          <p className="text-xs text-muted-foreground mt-0.5">{subtitle}</p>
+        )}
       </CardHeader>
       <CardContent className="space-y-0 pt-2">
-        {/* Visual bars for parseable endpoints */}
         {parseable.length > 0 && (
           <div className="divide-y divide-border">
             {parseable.map((bar, idx) => (
-              <EndpointBar key={idx} bar={bar} maxMonths={maxMonths} />
+              <EndpointBarRow
+                key={idx}
+                bar={bar}
+                maxMonths={maxMonths}
+                isGoalpostShift={isGoalpostShift}
+              />
             ))}
           </div>
         )}
 
-        {/* Text-only table for non-parseable timeframes */}
         {unparseable.length > 0 && (
-          <div className={`${parseable.length > 0 ? "mt-4 pt-4 border-t border-border" : ""}`}>
+          <div className={parseable.length > 0 ? "mt-4 pt-4 border-t border-border" : ""}>
             <p className="text-[10px] font-semibold uppercase tracking-widest text-muted-foreground mb-3">
               Additional Endpoints
             </p>
             <div className="space-y-2">
               {unparseable.map((bar, idx) => (
-                <div key={idx} className="flex items-start gap-3 text-sm py-1 border-b border-border/50 last:border-0">
-                  <span className="text-[10px] font-mono font-semibold text-muted-foreground mt-0.5 w-8 shrink-0 text-right">{bar.label}</span>
+                <div
+                  key={idx}
+                  className="flex items-start gap-3 text-sm py-1 border-b border-border/50 last:border-0"
+                >
+                  <span className="text-[10px] font-mono font-semibold text-muted-foreground mt-0.5 w-8 shrink-0 text-right">
+                    {bar.label}
+                  </span>
                   <div className="flex-1 min-w-0">
                     <span className="text-foreground">{bar.measure}</span>
-                    <span className="text-muted-foreground text-xs ml-2 font-mono">({bar.timeFrameRaw})</span>
+                    <span className="text-muted-foreground text-xs ml-2 font-mono">
+                      ({bar.timeFrameRaw})
+                    </span>
                   </div>
                 </div>
               ))}
@@ -649,8 +736,8 @@ export default function TargetDossier() {
               </div>
             )}
 
-            {/* Section 3: Endpoint Benchmark */}
-            <EndpointBenchmarkTable trial={data.trial} alerts={data.alerts} />
+            {/* Section 3: Endpoint Timelines / Benchmark (conditional on alert.vector) */}
+            <EndpointSection trial={data.trial} alerts={data.alerts} />
 
             {/* Section 4: Literature Base */}
             <LiteratureBase trial={data.trial} alerts={data.alerts} />
