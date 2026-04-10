@@ -127,7 +127,7 @@ export default function Governance() {
               <h1 className="text-3xl font-bold tracking-tight">Governance & Audit Ledger</h1>
             </div>
             <p className="text-muted-foreground mt-1">
-              Transparent record of every autonomous action executed by the kill-chain. Immutable provenance for FDA audit.
+              Transparent record of every autonomous action executed by the Signal Engine. Immutable provenance for FDA audit.
             </p>
           </div>
           <div className="flex items-center gap-2 shrink-0">

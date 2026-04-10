@@ -133,7 +133,7 @@ export async function runSwarmIngestion(nctIds: string[]): Promise<SwarmResult> 
     "",
     "SWARM_INGESTION",
     "POLL_COMPLETE",
-    `Scraped ${studyMap.size} trial(s) from ClinicalTrials.gov v2 API. Dispatching to kill-chain orchestrator.`,
+    `Scraped ${studyMap.size} trial(s) from ClinicalTrials.gov v2 API. Dispatching to Signal Engine.`,
   );
 
   const fetchedAt = new Date().toISOString();
@@ -163,7 +163,7 @@ export async function runSwarmIngestion(nctIds: string[]): Promise<SwarmResult> 
           nctId,
           "SWARM_INGESTION",
           "FIRST_FETCH",
-          `First ingestion for ${nctId}. Storing baseline. Running kill-chain against synthetic sentinel to surface immediate signals.`,
+          `First ingestion for ${nctId}. Storing baseline. Running Signal Engine against synthetic sentinel to surface immediate signals.`,
         );
 
         await dbSet(baselineKey(nctId), newRecord);
