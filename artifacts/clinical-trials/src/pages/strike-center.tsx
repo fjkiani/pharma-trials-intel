@@ -37,17 +37,12 @@ type AlertSeverity = "critical" | "high" | "medium";
 type BriefStatus = "Draft" | "PI Review" | "Approved" | "Sent" | "Discarded";
 
 interface StrikeFeedItem {
-  id: string;
   nctId: string;
-  studyTitle: string;
-  sponsor: string;
-  changeSummary: string;
-  clinicalInterpretation: string;
-  changedFields: string[];
-  status: "new" | "approved" | "dismissed";
-  severity: AlertSeverity;
   detectedAt: string;
-  docUrl: string | null;
+  module: string;
+  severity: AlertSeverity;
+  headline: string;
+  detail: string;
 }
 
 interface IntelligenceBrief {
@@ -115,12 +110,9 @@ function severityConfig(severity: AlertSeverity) {
 
 function AnomalyCard({ item }: { item: StrikeFeedItem }) {
   const cfg = severityConfig(item.severity);
-  const isActed = item.status !== "new";
 
   return (
-    <div
-      className={`rounded-lg border ${cfg.border} ${cfg.bg} p-3 space-y-2 ${isActed ? "opacity-50" : ""}`}
-    >
+    <div className={`rounded-lg border ${cfg.border} ${cfg.bg} p-3 space-y-2`}>
       <div className="flex items-start justify-between gap-2">
         <div className="flex items-center gap-2 min-w-0">
           <span className={`h-2 w-2 rounded-full shrink-0 mt-1 ${cfg.dot}`} />
@@ -131,15 +123,10 @@ function AnomalyCard({ item }: { item: StrikeFeedItem }) {
                 {cfg.icon}
                 {cfg.label}
               </Badge>
-              {isActed && (
-                <Badge variant="outline" className="text-[10px] px-1.5 py-0 capitalize">
-                  {item.status}
-                </Badge>
-              )}
+              <Badge variant="outline" className="text-[10px] px-1.5 py-0 font-mono">
+                {item.module}
+              </Badge>
             </div>
-            <p className="text-xs text-muted-foreground truncate" title={item.studyTitle}>
-              {item.studyTitle}
-            </p>
           </div>
         </div>
         <span className="text-[10px] text-muted-foreground shrink-0 mt-0.5">
@@ -147,27 +134,8 @@ function AnomalyCard({ item }: { item: StrikeFeedItem }) {
         </span>
       </div>
 
-      <p className="text-xs font-medium text-foreground leading-snug">{item.changeSummary}</p>
-      <p className="text-xs text-muted-foreground leading-relaxed">{item.clinicalInterpretation}</p>
-
-      <div className="flex items-center gap-1 flex-wrap pt-0.5">
-        {item.changedFields.map((f) => (
-          <Badge key={f} variant="outline" className="text-[10px] px-1.5 py-0 font-mono">
-            {f}
-          </Badge>
-        ))}
-        {item.docUrl && (
-          <a
-            href={item.docUrl}
-            target="_blank"
-            rel="noopener noreferrer"
-            className="text-[10px] text-primary underline underline-offset-2 flex items-center gap-0.5 ml-auto"
-          >
-            <FileText className="h-2.5 w-2.5" />
-            Brief Doc
-          </a>
-        )}
-      </div>
+      <p className="text-xs font-medium text-foreground leading-snug">{item.headline}</p>
+      <p className="text-xs text-muted-foreground leading-relaxed">{item.detail}</p>
     </div>
   );
 }
@@ -426,7 +394,8 @@ export default function StrikeCenter() {
 
   const feedQuery = useQuery({
     queryKey: ["strike-feed"],
-    queryFn: () => apiFetch<StrikeFeedItem[]>("/strike/feed"),
+    queryFn: () =>
+      apiFetch<{ alerts: StrikeFeedItem[] }>("/strike/feed").then((r) => r.alerts),
     refetchInterval: 2 * 60 * 1000,
   });
 
@@ -491,13 +460,11 @@ export default function StrikeCenter() {
 
   const feed = feedQuery.data ?? [];
   const briefs = briefsQuery.data ?? [];
-  const newAlerts = feed.filter((f) => f.status === "new");
-  const actedAlerts = feed.filter((f) => f.status !== "new");
 
-  const criticalCount = newAlerts.filter((a) => a.severity === "critical").length;
-  const highCount = newAlerts.filter((a) => a.severity === "high").length;
+  const criticalCount = feed.filter((a) => a.severity === "critical").length;
+  const highCount = feed.filter((a) => a.severity === "high").length;
 
-  const hasNewAlerts = newAlerts.length > 0;
+  const hasNewAlerts = feed.length > 0;
   const isPending = refreshSwarm.isPending || draftBrief.isPending;
 
   return (
@@ -540,14 +507,14 @@ export default function StrikeCenter() {
           </div>
         </div>
 
-        {newAlerts.length === 0 && !feedQuery.isLoading && (
+        {feed.length === 0 && !feedQuery.isLoading && (
           <div className="flex items-center gap-3 rounded-md border border-green-200 bg-green-50 px-4 py-3 text-sm text-green-700">
             <CheckCircle2 className="h-4 w-4 shrink-0" />
             <span>All clear — no active anomalies detected across your watched trials.</span>
           </div>
         )}
 
-        {newAlerts.length > 0 && (
+        {(feedQuery.isLoading || feed.length > 0) && (
           <div className="space-y-3">
             <div className="flex items-center justify-between">
               <h2 className="text-xs font-bold uppercase tracking-widest text-foreground/60">
@@ -565,7 +532,9 @@ export default function StrikeCenter() {
                     {highCount} High
                   </Badge>
                 )}
-                <Badge variant="secondary">{newAlerts.length} total</Badge>
+                {feed.length > 0 && (
+                  <Badge variant="secondary">{feed.length} total</Badge>
+                )}
               </div>
             </div>
 
@@ -577,29 +546,17 @@ export default function StrikeCenter() {
               </div>
             ) : (
               <div className="grid sm:grid-cols-2 gap-3">
-                {newAlerts
+                {feed
+                  .slice()
                   .sort((a, b) => {
-                    const order = { critical: 0, high: 1, medium: 2 };
+                    const order: Record<AlertSeverity, number> = { critical: 0, high: 1, medium: 2 };
                     return order[a.severity] - order[b.severity];
                   })
                   .map((item) => (
-                    <AnomalyCard key={item.id} item={item} />
+                    <AnomalyCard key={`${item.nctId}-${item.module}`} item={item} />
                   ))}
               </div>
             )}
-          </div>
-        )}
-
-        {actedAlerts.length > 0 && (
-          <div className="space-y-3">
-            <h2 className="text-xs font-bold uppercase tracking-widest text-foreground/60">
-              Resolved Anomalies
-            </h2>
-            <div className="grid sm:grid-cols-2 gap-3">
-              {actedAlerts.map((item) => (
-                <AnomalyCard key={item.id} item={item} />
-              ))}
-            </div>
           </div>
         )}
 
