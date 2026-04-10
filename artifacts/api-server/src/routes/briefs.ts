@@ -1,4 +1,5 @@
 import { Router } from "express";
+import Database from "@replit/database";
 import { logger } from "../lib/logger.js";
 import {
   createBrief,
@@ -6,8 +7,46 @@ import {
   updateBrief,
   listBriefs,
 } from "../lib/briefHistory.js";
-import { listAlerts } from "../lib/watchlist.js";
 import { getSettings } from "../lib/settings.js";
+
+type DbResult<T> = { ok: true; value: T } | { ok: false; error: unknown };
+
+const _db = new Database();
+
+async function dbGet<T>(key: string): Promise<T | null> {
+  const result = await (_db as unknown as { get(k: string): Promise<DbResult<T | null>> }).get(key);
+  if (!result.ok) {
+    const statusCode = ((result as { ok: false; error: unknown }).error as { statusCode?: number })?.statusCode;
+    if (statusCode === 404) return null;
+    throw new Error(`DB error (get:${key})`);
+  }
+  return (result as { ok: true; value: T | null }).value;
+}
+
+async function dbList(prefix: string): Promise<string[]> {
+  const result = await (_db as unknown as { list(p: string): Promise<DbResult<string[]>> }).list(prefix);
+  if (!result.ok) return [];
+  return (result as { ok: true; value: string[] }).value ?? [];
+}
+
+interface TriggeredAlert {
+  nctId: string;
+  detectedAt: string;
+  module: string;
+  severity: "critical" | "high" | "medium" | "low";
+  headline: string;
+  detail: string;
+}
+
+async function listKillChainAlerts(): Promise<TriggeredAlert[]> {
+  const keys = await dbList("trial:alerts:");
+  const all: TriggeredAlert[] = [];
+  for (const key of keys) {
+    const alerts = await dbGet<TriggeredAlert[]>(key);
+    if (Array.isArray(alerts)) all.push(...alerts);
+  }
+  return all.sort((a, b) => new Date(b.detectedAt).getTime() - new Date(a.detectedAt).getTime());
+}
 
 const router = Router();
 
@@ -34,34 +73,27 @@ function handleError(
   }
 }
 
-function buildBriefDocContent(
-  alerts: Array<{
-    nctId: string;
-    studyTitle: string;
-    sponsor: string;
-    changeSummary: string;
-    clinicalInterpretation: string;
-    changedFields: string[];
-  }>,
-): string {
+function buildBriefDocContent(alerts: TriggeredAlert[]): string {
   const now = new Date().toLocaleDateString("en-US", {
     month: "long",
     day: "numeric",
     year: "numeric",
   });
 
-  const alertSections = alerts
+  const severityOrder: Record<string, number> = { critical: 0, high: 1, medium: 2, low: 3 };
+  const sorted = [...alerts].sort(
+    (a, b) => (severityOrder[a.severity] ?? 9) - (severityOrder[b.severity] ?? 9),
+  );
+
+  const alertSections = sorted
     .map(
       (a, i) => `
-${i + 1}. ${a.nctId} — ${a.studyTitle}
-   Sponsor: ${a.sponsor}
-   Changed Fields: ${a.changedFields.join(", ")}
+${i + 1}. [${a.severity.toUpperCase()}] ${a.nctId} — ${a.module}
+   Detected: ${new Date(a.detectedAt).toLocaleString("en-US")}
 
-   What Changed:
-   ${a.changeSummary}
+   ${a.headline}
 
-   Clinical Interpretation:
-   ${a.clinicalInterpretation}
+   ${a.detail}
 `,
     )
     .join("\n" + "—".repeat(50) + "\n");
@@ -95,17 +127,16 @@ router.get("/briefs", async (_req, res): Promise<void> => {
 
 router.post(["/briefs", "/internal/draft-memo"], async (_req, res): Promise<void> => {
   try {
-    const allAlerts = await listAlerts();
-    const newAlerts = allAlerts.filter((a) => a.status === "new");
+    const activeAlerts = await listKillChainAlerts();
 
-    if (newAlerts.length === 0) {
+    if (activeAlerts.length === 0) {
       throw new ApiError(
         409,
-        "No active alerts to brief on. Run a poll first to detect competitor changes.",
+        "No active alerts to brief on. Use Refresh Swarm to scan competitor trials first.",
       );
     }
 
-    const content = buildBriefDocContent(newAlerts);
+    const content = buildBriefDocContent(activeAlerts);
     const docTitle = `Competitor Intelligence Brief — ${new Date().toLocaleDateString("en-US")}`;
 
     const { ReplitConnectors } = await import("@replit/connectors-sdk");
@@ -174,11 +205,11 @@ router.post(["/briefs", "/internal/draft-memo"], async (_req, res): Promise<void
     const brief = await createBrief({
       docUrl,
       docId,
-      alertCount: newAlerts.length,
-      alertIds: newAlerts.map((a) => a.id),
+      alertCount: activeAlerts.length,
+      alertIds: activeAlerts.map((a) => `${a.nctId}:${a.module}`),
     });
 
-    logger.info({ briefId: brief.id, alertCount: newAlerts.length }, "Intelligence brief created");
+    logger.info({ briefId: brief.id, alertCount: activeAlerts.length }, "Intelligence brief created");
     res.status(201).json(brief);
   } catch (err) {
     handleError(err, res);
