@@ -47,6 +47,24 @@ interface TrialRecord {
   [key: string]: unknown;
 }
 
+const SYNTHETIC_SENTINEL = "1970-01-01T00:00:00.000Z";
+
+function buildSyntheticBaseline(currentRecord: TrialRecord): TrialRecord {
+  const proto = currentRecord.protocolSection as Record<string, unknown> | undefined;
+  const idModule = proto?.identificationModule ?? {};
+  return {
+    fetchedAt: SYNTHETIC_SENTINEL,
+    protocolSection: {
+      identificationModule: idModule,
+      statusModule: { overallStatus: "" },
+      designModule: {},
+      outcomesModule: {},
+    },
+    hasResults: false,
+    resultsSection: null,
+  };
+}
+
 interface SwarmResult {
   processed: number;
   failed: number;
@@ -116,9 +134,22 @@ export async function runSwarmIngestion(nctIds: string[]): Promise<SwarmResult> 
       const existingBaseline = await dbGet<TrialRecord>(baselineKey(nctId));
 
       if (!existingBaseline) {
+        // First fetch: use a synthetic empty baseline so the kill-chain fires
+        // immediately for absolute-state signals (terminated, results posted,
+        // serious AEs). Real data is stored as the baseline for future delta runs.
+        const syntheticBaseline = buildSyntheticBaseline(newRecord);
+        logger.info({ nctId }, "First fetch — running kill-chain against synthetic baseline");
+
         await dbSet(baselineKey(nctId), newRecord);
         await dbSet(currentKey(nctId), newRecord);
-        logger.info({ nctId }, "First fetch — stored as baseline and current, skipping kill-chain");
+
+        const firstAlerts: TriggeredAlert[] = await runKillChain(syntheticBaseline, newRecord);
+        if (firstAlerts.length > 0) {
+          await dbSet(alertsKey(nctId), firstAlerts);
+          result.alertsGenerated += firstAlerts.length;
+          logger.info({ nctId, alerts: firstAlerts.length }, "First-fetch kill-chain fired");
+        }
+
         result.processed++;
         continue;
       }
@@ -126,10 +157,15 @@ export async function runSwarmIngestion(nctIds: string[]): Promise<SwarmResult> 
       const alerts: TriggeredAlert[] = await runKillChain(existingBaseline, newRecord);
 
       await dbSet(currentKey(nctId), newRecord);
-      await dbSet(alertsKey(nctId), alerts);
+
+      // Only overwrite stored alerts if the kill-chain produced a new diff.
+      // Leaving the previous alerts in place keeps the feed populated between polls.
+      if (alerts.length > 0) {
+        await dbSet(alertsKey(nctId), alerts);
+        result.alertsGenerated += alerts.length;
+      }
 
       result.processed++;
-      result.alertsGenerated += alerts.length;
 
       logger.info({ nctId, alerts: alerts.length }, "Kill-chain complete");
     } catch (err) {
