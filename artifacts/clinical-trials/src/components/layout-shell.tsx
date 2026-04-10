@@ -21,6 +21,7 @@ interface IntegrationStatus {
   connected: boolean;
   degraded?: boolean;
   statusReason?: string | null;
+  needsReconnect?: boolean;
 }
 
 interface HealthResponse {
@@ -46,8 +47,13 @@ function useLiveHealth() {
       const failing: string[] = [];
       for (const [, svc] of Object.entries(data)) {
         const s = svc as IntegrationStatus;
-        if (!s.connected) failing.push(s.label);
-        else if (s.degraded && s.statusReason) failing.push(s.statusReason);
+        if (!s.connected) {
+          if (s.needsReconnect) failing.push(`${s.label}: reconnection required`);
+          else if (s.statusReason) failing.push(`${s.label}: ${s.statusReason}`);
+          else failing.push(s.label);
+        } else if (s.degraded && s.statusReason) {
+          failing.push(s.statusReason);
+        }
       }
       setFailingServices(failing);
     } catch {

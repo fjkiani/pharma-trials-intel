@@ -57,7 +57,7 @@ async function probeGoogleDocs(s: Awaited<ReturnType<typeof getSettings>>): Prom
   }
 }
 
-async function probeGmail(): Promise<{ connected: boolean; reason?: string }> {
+async function probeGmail(): Promise<{ connected: boolean; reason?: string; needsReconnect?: boolean }> {
   try {
     const { google } = await import("googleapis");
     const auth = await getGoogleOAuth2Client("google-mail");
@@ -66,7 +66,16 @@ async function probeGmail(): Promise<{ connected: boolean; reason?: string }> {
     if (!profile.data.emailAddress) return { connected: false, reason: "Gmail profile returned no email address" };
     return { connected: true };
   } catch (e) {
-    return { connected: false, reason: `Gmail error: ${e instanceof Error ? e.message.slice(0, 120) : String(e)}` };
+    const msg = e instanceof Error ? e.message : String(e);
+    const isScope = msg.toLowerCase().includes("insufficient") || msg.toLowerCase().includes("scope");
+    if (isScope) {
+      return {
+        connected: false,
+        needsReconnect: true,
+        reason: "Gmail needs reconnection — go to Replit integrations, disconnect Google Mail, then reconnect it to grant send permissions.",
+      };
+    }
+    return { connected: false, reason: `Gmail error: ${msg.slice(0, 120)}` };
   }
 }
 
@@ -183,6 +192,7 @@ router.get("/integrations/status", async (_req, res): Promise<void> => {
       label: "Gmail",
       connected: gmailProbe.connected,
       degraded: false,
+      needsReconnect: (gmailProbe as { needsReconnect?: boolean }).needsReconnect ?? false,
       statusReason: gmailProbe.reason ?? null,
       description: "Automated PI communications",
       provides: [

@@ -213,42 +213,132 @@ function AlertCard({ alert, onRefresh }: { alert: WatchlistAlert; onRefresh: () 
   );
 }
 
-function WatchlistRow({ item, onRemove }: { item: WatchlistItem; onRemove: (nct: string) => void }) {
+function WatchlistRow({
+  item,
+  onRemove,
+  relatedAlerts,
+}: {
+  item: WatchlistItem;
+  onRemove: (nct: string) => void;
+  relatedAlerts: WatchlistAlert[];
+}) {
+  const [expanded, setExpanded] = useState(false);
+
+  const activeAlerts = relatedAlerts.filter((a) => a.status === "new");
+  const ctUrl = `https://clinicaltrials.gov/study/${item.nctId}`;
+
   return (
-    <tr className="border-b last:border-0 hover:bg-muted/30 transition-colors">
-      <td className="py-2.5 px-3 font-mono text-sm font-medium text-primary">{item.nctId}</td>
-      <td className="py-2.5 px-3 text-sm max-w-[280px]">
-        <p className="line-clamp-1" title={item.studyTitle}>{item.fetchError ? "—" : item.studyTitle}</p>
-        <p className="text-xs text-muted-foreground line-clamp-1">{item.fetchError ? "Fetch error" : item.sponsor}</p>
-      </td>
-      <td className="py-2.5 px-3">
-        {item.fetchError ? (
-          <Badge variant="destructive" className="text-xs">Fetch Error</Badge>
-        ) : (
-          <StatusBadge status={item.overallStatus} />
-        )}
-      </td>
-      <td className="py-2.5 px-3 text-sm text-muted-foreground">
-        {item.primaryCompletionDate ?? "—"}
-      </td>
-      <td className="py-2.5 px-3 text-sm text-muted-foreground">
-        {item.enrollmentCount != null ? `${item.enrollmentCount} (${item.enrollmentType ?? "?"})` : "—"}
-      </td>
-      <td className="py-2.5 px-3 text-xs text-muted-foreground">
-        {item.lastCheckedAt ? format(parseISO(item.lastCheckedAt), "MMM d, h:mm a") : "Never"}
-      </td>
-      <td className="py-2.5 px-3">
-        <Button
-          size="sm"
-          variant="ghost"
-          onClick={() => onRemove(item.nctId)}
-          className="h-7 w-7 p-0 text-muted-foreground hover:text-destructive"
-          title="Remove from watchlist"
-        >
-          <Trash2 className="h-3.5 w-3.5" />
-        </Button>
-      </td>
-    </tr>
+    <>
+      <tr
+        className="border-b last:border-0 hover:bg-muted/30 transition-colors cursor-pointer select-none"
+        onClick={() => setExpanded((v) => !v)}
+      >
+        <td className="py-2.5 px-3">
+          <div className="flex items-center gap-1.5">
+            {expanded
+              ? <ChevronDown className="h-3.5 w-3.5 text-muted-foreground shrink-0" />
+              : <ChevronRight className="h-3.5 w-3.5 text-muted-foreground shrink-0" />}
+            <span className="font-mono text-sm font-medium text-primary">{item.nctId}</span>
+          </div>
+        </td>
+        <td className="py-2.5 px-3 text-sm max-w-[260px]">
+          <p className="line-clamp-1" title={item.studyTitle}>{item.fetchError ? "—" : item.studyTitle}</p>
+          <p className="text-xs text-muted-foreground line-clamp-1">{item.fetchError ? "Fetch error" : item.sponsor}</p>
+        </td>
+        <td className="py-2.5 px-3">
+          {item.fetchError ? (
+            <Badge variant="destructive" className="text-xs">Fetch Error</Badge>
+          ) : (
+            <StatusBadge status={item.overallStatus} />
+          )}
+        </td>
+        <td className="py-2.5 px-3 text-sm text-muted-foreground">{item.primaryCompletionDate ?? "—"}</td>
+        <td className="py-2.5 px-3 text-sm text-muted-foreground">
+          {item.enrollmentCount != null ? `${item.enrollmentCount} (${item.enrollmentType ?? "?"})` : "—"}
+        </td>
+        <td className="py-2.5 px-3 text-xs text-muted-foreground">
+          {item.lastCheckedAt ? format(parseISO(item.lastCheckedAt), "MMM d, h:mm a") : "Never"}
+        </td>
+        <td className="py-2.5 px-3" onClick={(e) => e.stopPropagation()}>
+          <Button
+            size="sm"
+            variant="ghost"
+            onClick={() => onRemove(item.nctId)}
+            className="h-7 w-7 p-0 text-muted-foreground hover:text-destructive"
+            title="Remove from watchlist"
+          >
+            <Trash2 className="h-3.5 w-3.5" />
+          </Button>
+        </td>
+      </tr>
+
+      {expanded && (
+        <tr className="border-b last:border-0 bg-muted/20">
+          <td colSpan={7} className="px-4 py-3">
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4 text-sm">
+
+              {/* Left: trial details */}
+              <div className="space-y-2">
+                {!item.fetchError && (
+                  <p className="text-foreground font-medium leading-snug">{item.studyTitle}</p>
+                )}
+                <div className="flex flex-wrap gap-x-4 gap-y-1 text-xs text-muted-foreground">
+                  <span><span className="font-medium text-foreground">Sponsor:</span> {item.sponsor || "—"}</span>
+                  <span><span className="font-medium text-foreground">Status:</span> {item.overallStatus || "—"}</span>
+                  {item.enrollmentCount != null && (
+                    <span>
+                      <span className="font-medium text-foreground">Enrollment:</span>{" "}
+                      {item.enrollmentCount.toLocaleString()} ({item.enrollmentType ?? "?"})
+                    </span>
+                  )}
+                  {item.primaryCompletionDate && (
+                    <span>
+                      <span className="font-medium text-foreground">Primary Completion:</span>{" "}
+                      {item.primaryCompletionDate}
+                    </span>
+                  )}
+                  {item.lastUpdatePostDate && (
+                    <span>
+                      <span className="font-medium text-foreground">Registry Updated:</span>{" "}
+                      {format(parseISO(item.lastUpdatePostDate), "MMM d, yyyy")}
+                    </span>
+                  )}
+                </div>
+                <a
+                  href={ctUrl}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="inline-flex items-center gap-1 text-xs text-primary hover:underline"
+                  onClick={(e) => e.stopPropagation()}
+                >
+                  <ExternalLink className="h-3 w-3" />
+                  View on ClinicalTrials.gov
+                </a>
+              </div>
+
+              {/* Right: active change alerts for this trial */}
+              <div>
+                {activeAlerts.length === 0 ? (
+                  <p className="text-xs text-muted-foreground italic">No pending change alerts for this trial.</p>
+                ) : (
+                  <div className="space-y-1.5">
+                    <p className="text-xs font-medium text-foreground mb-1">
+                      {activeAlerts.length} Pending Alert{activeAlerts.length !== 1 ? "s" : ""}
+                    </p>
+                    {activeAlerts.map((alert) => (
+                      <div key={alert.id} className="rounded border border-amber-200 bg-amber-50 dark:bg-amber-950/20 dark:border-amber-900 px-2.5 py-1.5">
+                        <p className="text-xs font-medium text-amber-900 dark:text-amber-400">{alert.changeSummary}</p>
+                        <p className="text-xs text-amber-700 dark:text-amber-500 mt-0.5 line-clamp-2">{alert.clinicalInterpretation}</p>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+            </div>
+          </td>
+        </tr>
+      )}
+    </>
   );
 }
 
@@ -492,6 +582,7 @@ export default function CompetitorWatch() {
                         key={item.nctId}
                         item={item}
                         onRemove={(nct) => removeTrial.mutate(nct)}
+                        relatedAlerts={alerts.filter((a) => a.nctId === item.nctId)}
                       />
                     ))}
                   </tbody>
