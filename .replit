@@ -58,3 +58,9 @@ externalPort = 5173
 
 [nix]
 channel = "stable-25_05"
+
+[userenv]
+
+[userenv.shared]
+NOTION_COMPETITOR_DB_ID = "33e95050449b80bd8b05dfb50286809c"
+NOTION_TASKS_DB_ID = "33e95050449b80f0b5aadb85ce282567"
