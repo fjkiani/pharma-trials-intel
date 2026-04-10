@@ -86,7 +86,8 @@ export async function readDeviationSummary(
   let major = 0;
   for (const page of pages) {
     const props = getProps(page);
-    const sevProp = props["Severity"] as Record<string, unknown> | undefined;
+    // "Severity" is the preferred field; fall back to "Type" if absent
+    const sevProp = (props["Severity"] ?? props["Type"]) as Record<string, unknown> | undefined;
     const sev = (sevProp?.select as Record<string, string> | undefined)?.name ?? "";
     if (sev === "Major") major++;
   }
@@ -120,11 +121,15 @@ export async function readNextMilestone(
   for (const page of pages) {
     const props = getProps(page);
 
-    const nameProp = props["Document Name"] as Record<string, unknown> | undefined;
-    const nameArr = nameProp?.title as Array<{ plain_text?: string }> | undefined;
+    // Title: find by property type so any column name works
+    const titleProp = Object.values(props).find(
+      (p) => (p as Record<string, unknown>).type === "title",
+    ) as Record<string, unknown> | undefined;
+    const nameArr = titleProp?.title as Array<{ plain_text?: string }> | undefined;
     const name = nameArr?.[0]?.plain_text ?? "Untitled";
 
-    const dateProp = props["Expiration Date"] as Record<string, unknown> | undefined;
+    // Date: "Expiration Date" or "Due Date"
+    const dateProp = (props["Expiration Date"] ?? props["Due Date"]) as Record<string, unknown> | undefined;
     const dateStr = (dateProp?.date as Record<string, string> | undefined)?.start;
     if (!dateStr) continue;
 

@@ -194,20 +194,22 @@ router.post("/connections/discover", async (_req, res): Promise<void> => {
 const NOTION_CONTRACTS: Record<string, { required: string[]; optional: string[] }> = {
   notionAeLogDbId: {
     required: ["Grade"],
-    optional: ["Severity", "Status", "AE Description", "Date Reported"],
+    optional: ["Resolved", "AE Description", "Date Reported"],
   },
   notionDeviationLogDbId: {
-    required: ["Severity"],
-    optional: ["Type", "Status", "Protocol", "Description", "Date"],
+    // "Severity" or "Type" accepted — DB may use either for major/minor classification
+    required: [],
+    optional: ["Severity", "Type", "Resolved", "Deviation Description", "Date Reported"],
   },
   notionRegulatoryDbId: {
-    required: ["Document Name", "Expiration Date"],
-    optional: ["Status", "File Link"],
+    // Title property can be named anything; date field is "Due Date" or "Expiration Date"
+    required: [],
+    optional: ["Due Date", "Expiration Date", "Status", "File Link", "Milestone"],
   },
 };
 
-const SHEETS_REQUIRED_COLUMNS = ["Patient", "Status"];
-const SHEETS_OPTIONAL_COLUMNS = ["Enrolled", "Screen", "Withdrawal", "Screen Failure", "Site"];
+const SHEETS_REQUIRED_COLUMNS = ["Metric", "Value"];
+const SHEETS_OPTIONAL_COLUMNS = ["Enrolled", "Screened", "Screen Failures", "Withdrawals"];
 
 const EXPECTED_DOC_PLACEHOLDERS = [
   "{{enrolled}}", "{{screened}}", "{{screen_failures}}", "{{withdrawals}}",

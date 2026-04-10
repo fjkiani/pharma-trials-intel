@@ -77,26 +77,30 @@ export async function listRegulatoryDocuments(
     const props =
       (page.properties as Record<string, Record<string, unknown>>) ?? {};
 
-    const nameProperty = props["Document Name"] as
-      | Record<string, unknown>
-      | undefined;
-    const titleArr = nameProperty?.title as
+    // Title: find by property type so any column name works
+    const titleProp = Object.values(props).find(
+      (p) => (p as Record<string, unknown>).type === "title",
+    ) as Record<string, unknown> | undefined;
+    const titleArr = titleProp?.title as
       | Array<{ plain_text?: string }>
       | undefined;
     const name = titleArr?.[0]?.plain_text ?? "Untitled";
 
-    const expirationProperty = props["Expiration Date"] as
+    // Expiration date: "Expiration Date" or "Due Date"
+    const expirationProperty = (props["Expiration Date"] ?? props["Due Date"]) as
       | Record<string, unknown>
       | undefined;
     const expirationDate =
       (expirationProperty?.date as Record<string, string> | undefined)
         ?.start ?? null;
 
+    // Status: select or status property type
     const statusProperty = props["Status"] as
       | Record<string, unknown>
       | undefined;
     const notionStatus =
       (statusProperty?.select as Record<string, string> | undefined)?.name ??
+      (statusProperty?.status as Record<string, string> | undefined)?.name ??
       null;
 
     const fileLinkProperty = props["File Link"] as
