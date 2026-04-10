@@ -311,4 +311,147 @@ async function fetchAlertsForTrial(
   }
 }
 
+// GET /strike/intelligence/:nctId
+// Primary read path for the Target Dossier. Tries strike:intelligence:{nctId}
+// first (ZetaCore-enriched), falls back to building from trial:alerts + trial:current.
+router.get("/strike/intelligence/:nctId", async (req, res): Promise<void> => {
+  const { nctId } = req.params;
+  try {
+    // Try ZetaCore-enriched record first
+    const enriched = await dbGet<Record<string, unknown>>(`strike:intelligence:${nctId}`);
+    if (enriched) {
+      res.json(enriched);
+      return;
+    }
+
+    // Fall back: build dossier from raw ingestion data
+    const alerts = (await dbGet<TriggeredAlert[]>(`trial:alerts:${nctId}`)) ?? [];
+    const current = await dbGet<Record<string, unknown>>(`trial:current:${nctId}`);
+    const baseline = await dbGet<Record<string, unknown>>(`trial:baseline:${nctId}`);
+
+    if (!current && alerts.length === 0) {
+      res.status(404).json({
+        error: `No intelligence record found for ${nctId}. Run a swarm poll first.`,
+      });
+      return;
+    }
+
+    // Extract trial metadata from the raw ClinicalTrials.gov snapshot
+    const proto = (current?.protocolSection ?? {}) as Record<string, unknown>;
+    const idMod = (proto.identificationModule ?? {}) as Record<string, unknown>;
+    const statusMod = (proto.statusModule ?? {}) as Record<string, unknown>;
+    const designMod = (proto.designModule ?? {}) as Record<string, unknown>;
+    const outcomesMod = (proto.outcomesModule ?? {}) as Record<string, unknown>;
+    const descMod = (proto.descriptionModule ?? {}) as Record<string, unknown>;
+    const condsMod = (proto.conditionsModule ?? {}) as Record<string, unknown>;
+    const sponsorMod = (proto.sponsorCollaboratorsModule ?? {}) as Record<string, unknown>;
+
+    const enrollInfo = (designMod.enrollmentInfo ?? {}) as Record<string, unknown>;
+    const primaryComp = (statusMod.primaryCompletionDateStruct ?? {}) as Record<string, unknown>;
+    const phases = (designMod.phases ?? []) as string[];
+    const leadSponsor = (sponsorMod.leadSponsor ?? {}) as Record<string, unknown>;
+    const primaryOutcomes = (outcomesMod.primaryOutcomes ?? []) as Array<Record<string, unknown>>;
+    const secondaryOutcomes = (outcomesMod.secondaryOutcomes ?? []) as Array<Record<string, unknown>>;
+    const conditions = (condsMod.conditions ?? []) as string[];
+
+    const bProto = (baseline?.protocolSection ?? {}) as Record<string, unknown>;
+    const bStatus = (bProto.statusModule ?? {}) as Record<string, unknown>;
+    const bDesign = (bProto.designModule ?? {}) as Record<string, unknown>;
+    const bEnroll = (bDesign.enrollmentInfo ?? {}) as Record<string, unknown>;
+    const bComp = (bStatus.primaryCompletionDateStruct ?? {}) as Record<string, unknown>;
+
+    const sortedAlerts = [...alerts].sort((a, b) => {
+      const order: Record<string, number> = { critical: 0, high: 1, medium: 2, low: 3 };
+      return (order[a.severity] ?? 3) - (order[b.severity] ?? 3);
+    });
+
+    res.json({
+      nctId,
+      source: "ingestion-fallback",
+      trial: {
+        nctId: (idMod.nctId ?? nctId) as string,
+        title: ((idMod.briefTitle ?? idMod.officialTitle ?? nctId) as string),
+        overallStatus: (statusMod.overallStatus ?? "UNKNOWN") as string,
+        whyStopped: (statusMod.whyStopped ?? null) as string | null,
+        primaryCompletionDate: (primaryComp.date ?? null) as string | null,
+        enrollmentCount: (enrollInfo.count ?? null) as number | null,
+        enrollmentType: (enrollInfo.type ?? null) as string | null,
+        phase: phases.join(", ") || "N/A",
+        hasResults: (current?.hasResults ?? false) as boolean,
+        conditions,
+        leadSponsor: (leadSponsor.name ?? "Unknown") as string,
+        briefSummary: (descMod.briefSummary ?? null) as string | null,
+        primaryOutcomes: primaryOutcomes.map((o) => ({
+          measure: o.measure ?? "",
+          timeFrame: o.timeFrame ?? "",
+          description: o.description ?? null,
+        })),
+        secondaryOutcomes: secondaryOutcomes.slice(0, 5).map((o) => ({
+          measure: o.measure ?? "",
+          timeFrame: o.timeFrame ?? "",
+        })),
+        fetchedAt: (current?.fetchedAt ?? null) as string | null,
+        baseline: baseline ? {
+          overallStatus: (bStatus.overallStatus ?? null) as string | null,
+          primaryCompletionDate: (bComp.date ?? null) as string | null,
+          enrollmentCount: (bEnroll.count ?? null) as number | null,
+        } : null,
+      },
+      alerts: sortedAlerts,
+    });
+  } catch (err) {
+    logger.error({ err, nctId }, "Failed to fetch intelligence record");
+    res.status(500).json({ error: "Failed to fetch intelligence record" });
+  }
+});
+
+// GET /strike/status — aggregate dashboard summary
+router.get("/strike/status", async (_req, res): Promise<void> => {
+  try {
+    const alertKeys = await dbList("trial:alerts:");
+    const currentKeys = await dbList("trial:current:");
+
+    const nctIds = [...new Set([
+      ...alertKeys.map((k) => k.replace("trial:alerts:", "")),
+      ...currentKeys.map((k) => k.replace("trial:current:", "")),
+    ])];
+
+    let totalAlerts = 0;
+    let criticalAlerts = 0;
+    let highAlerts = 0;
+    let mediumAlerts = 0;
+    let lowAlerts = 0;
+    let lastPollAt: string | null = null;
+
+    for (const key of alertKeys) {
+      const alerts = (await dbGet<TriggeredAlert[]>(key)) ?? [];
+      totalAlerts += alerts.length;
+      for (const a of alerts) {
+        if (a.severity === "critical") criticalAlerts++;
+        else if (a.severity === "high") highAlerts++;
+        else if (a.severity === "medium") mediumAlerts++;
+        else lowAlerts++;
+        if (!lastPollAt || a.detectedAt > lastPollAt) {
+          lastPollAt = a.detectedAt;
+        }
+      }
+    }
+
+    res.json({
+      trialsWatched: nctIds.length,
+      trialNctIds: nctIds,
+      totalAlerts,
+      criticalAlerts,
+      highAlerts,
+      mediumAlerts,
+      lowAlerts,
+      lastPollAt,
+      generatedAt: new Date().toISOString(),
+    });
+  } catch (err) {
+    logger.error({ err }, "Failed to fetch strike status");
+    res.status(500).json({ error: "Failed to fetch strike status" });
+  }
+});
+
 export default router;
