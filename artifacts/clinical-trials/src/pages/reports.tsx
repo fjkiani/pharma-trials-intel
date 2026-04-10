@@ -173,8 +173,14 @@ function ReportCard({
                       sendToPi.mutate(
                         { reportId: report.id },
                         {
-                          onSuccess: () => {
-                            toast({ title: "Sent to PI", description: "The PI has been emailed a link to the report." });
+                          onSuccess: (data: unknown) => {
+                            const result = data as { composeUrl?: string };
+                            if (result?.composeUrl) {
+                              window.open(result.composeUrl, "_blank", "noopener,noreferrer");
+                              toast({ title: "Gmail Compose Opened", description: "Review the pre-filled email and click Send in Gmail." });
+                            } else {
+                              toast({ title: "Moved to PI Review", description: "Report status updated." });
+                            }
                             onRefresh();
                           },
                           onError: (err: unknown) => {
@@ -355,7 +361,6 @@ export default function SponsorReports() {
     },
     staleTime: 60_000,
   });
-  const gmailNeedsReconnect = integrationStatus?.gmail?.needsReconnect === true;
   const driveNeedsReconnect =
     integrationStatus?.googleSheets?.needsReconnect === true ||
     integrationStatus?.googleDocs?.needsReconnect === true;
@@ -376,16 +381,16 @@ export default function SponsorReports() {
             return;
           }
           if (result.stalenessWarning) {
-            toast({
-              title: "Data Freshness Warning",
-              description: result.stalenessWarning,
-            });
+            toast({ title: "Data Freshness Warning", description: result.stalenessWarning });
           }
           invalidateReports();
-          toast({
-            title: "Report sent to PI",
-            description: result.message ?? "Report generated and emailed to PI for review.",
-          });
+          const composeUrl = (result as unknown as { composeUrl?: string })?.composeUrl;
+          if (composeUrl) {
+            window.open(composeUrl, "_blank", "noopener,noreferrer");
+            toast({ title: "Gmail Compose Opened", description: "Review the pre-filled email and click Send in Gmail." });
+          } else {
+            toast({ title: "Report Ready", description: result.message ?? "Report moved to PI Review." });
+          }
         },
         onError: (err: unknown) => {
           const errData = err as { response?: { data?: { error?: string }; status?: number } };
@@ -498,23 +503,6 @@ export default function SponsorReports() {
               <ol className="text-xs mt-2 space-y-0.5 list-decimal list-inside text-red-700">
                 <li>Open the <strong>Replit integrations panel</strong> (top-right of the Replit editor).</li>
                 <li>Find <strong>Google Drive</strong> and click <strong>Disconnect</strong>.</li>
-                <li>Click <strong>Connect</strong> again and accept all permission scopes when prompted.</li>
-              </ol>
-            </div>
-          </div>
-        )}
-
-        {gmailNeedsReconnect && (
-          <div className="flex items-start gap-2 rounded-md border border-red-200 bg-red-50 p-4 text-sm text-red-800">
-            <AlertTriangle className="h-4 w-4 mt-0.5 shrink-0 text-red-500" />
-            <div>
-              <p className="font-semibold">Gmail reconnection required</p>
-              <p className="text-xs mt-1">
-                The Gmail integration is missing send permissions. Email delivery will fail until you reconnect.
-              </p>
-              <ol className="text-xs mt-2 space-y-0.5 list-decimal list-inside text-red-700">
-                <li>Open the <strong>Replit integrations panel</strong> (top-right of the Replit editor).</li>
-                <li>Find <strong>Google Mail</strong> and click <strong>Disconnect</strong>.</li>
                 <li>Click <strong>Connect</strong> again and accept all permission scopes when prompted.</li>
               </ol>
             </div>

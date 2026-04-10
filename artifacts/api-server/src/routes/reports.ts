@@ -220,7 +220,10 @@ async function performGenerate(acknowledgeStale: boolean): Promise<GenerateOutco
 
 // ─── Core send-to-PI logic (shared by /send-to-pi and /run-monthly) ──────────
 
-async function performSendToPi(reportId: string, piEmail: string): Promise<SponsorReportRecord> {
+async function performSendToPi(
+  reportId: string,
+  piEmail: string,
+): Promise<{ report: SponsorReportRecord; composeUrl: string }> {
   const report = await getReport(reportId);
   if (!report) throw new ApiError(404, "Report not found");
   if (report.status !== "Draft") {
@@ -234,12 +237,7 @@ async function performSendToPi(reportId: string, piEmail: string): Promise<Spons
     year: "numeric",
   });
 
-  try {
-    await sendPiReviewEmail({ piEmail, docUrl: report.docUrl, reportDate });
-  } catch (err) {
-    const msg = err instanceof Error ? err.message : String(err);
-    throw new ApiError(503, `Failed to send email to PI: ${msg}. Check Gmail connection and PI email address.`);
-  }
+  const composeUrl = await sendPiReviewEmail({ piEmail, docUrl: report.docUrl, reportDate });
 
   const updated = await updateReport(reportId, {
     status: "PI Review",
@@ -247,7 +245,7 @@ async function performSendToPi(reportId: string, piEmail: string): Promise<Spons
     lastNagAt: new Date().toISOString(),
   });
   if (!updated) throw new ApiError(404, "Report not found after update");
-  return updated;
+  return { report: updated, composeUrl };
 }
 
 // ─── Routes ───────────────────────────────────────────────────────────────────
@@ -295,9 +293,9 @@ router.post("/reports/run-monthly", async (req, res): Promise<void> => {
   }
 
   const settings = await getSettings();
-  let finalReport: SponsorReportRecord;
+  let sendResult: { report: SponsorReportRecord; composeUrl: string };
   try {
-    finalReport = await performSendToPi(genOutcome.report.id, settings.piEmail!);
+    sendResult = await performSendToPi(genOutcome.report.id, settings.piEmail!);
   } catch (err) {
     if (err instanceof ApiError) {
       res.status(err.httpStatus).json({ error: err.message });
@@ -307,14 +305,15 @@ router.post("/reports/run-monthly", async (req, res): Promise<void> => {
     return;
   }
 
-  res.json(
-    RunMonthlyReportResponse.parse({
-      report: finalReport,
+  res.json({
+    ...RunMonthlyReportResponse.parse({
+      report: sendResult.report,
       stalenessWarning: genOutcome.stalenessWarning,
       requiresStaleAcknowledge: false,
-      message: `Report generated and sent to ${settings.piEmail} for review. Waiting for PI approval — your only remaining action.`,
+      message: `Report moved to PI Review. Open Gmail to send the pre-filled email to ${settings.piEmail}.`,
     }),
-  );
+    composeUrl: sendResult.composeUrl,
+  });
 });
 
 // POST /reports/generate — step-by-step flow (manual path)
@@ -374,8 +373,8 @@ router.post("/reports/:reportId/send-to-pi", async (req, res): Promise<void> => 
   }
 
   try {
-    const updated = await performSendToPi(reportId, settings.piEmail);
-    res.json(SendReportToPiResponse.parse(updated));
+    const { report, composeUrl } = await performSendToPi(reportId, settings.piEmail);
+    res.json({ ...SendReportToPiResponse.parse(report), composeUrl });
   } catch (err) {
     if (err instanceof ApiError) {
       res.status(err.httpStatus).json({ error: err.message });
@@ -506,7 +505,8 @@ router.post("/internal/nag-check", async (req, res): Promise<void> => {
     try {
       if (!settings.piEmail) { errors.push(`Report ${report.id}: PI email not configured`); continue; }
       const { sendNagEmail } = await import("../lib/gmail.js");
-      await sendNagEmail({ piEmail: settings.piEmail, docUrl: report.docUrl, reportDate, nagCount: 1 });
+      const nagComposeUrl = await sendNagEmail({ piEmail: settings.piEmail, docUrl: report.docUrl, reportDate, nagCount: 1 });
+      logger.info({ reportId: report.id, nagComposeUrl }, "Nag compose URL generated");
       await updateReport(report.id, { lastNagAt: new Date().toISOString() });
       nagsSent++;
     } catch (err) {

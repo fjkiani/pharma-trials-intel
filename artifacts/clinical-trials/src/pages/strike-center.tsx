@@ -200,9 +200,14 @@ function BriefCard({
   const isDiscarded = brief.status === "Discarded";
 
   const sendToPi = useMutation({
-    mutationFn: () => apiFetch<IntelligenceBrief>(`/briefs/${brief.id}/send-to-pi`, { method: "POST" }),
-    onSuccess: () => {
-      toast({ title: "Sent to PI", description: "The PI has been emailed a link to the intelligence brief." });
+    mutationFn: () => apiFetch<IntelligenceBrief & { composeUrl?: string }>(`/briefs/${brief.id}/send-to-pi`, { method: "POST" }),
+    onSuccess: (data) => {
+      if (data?.composeUrl) {
+        window.open(data.composeUrl, "_blank", "noopener,noreferrer");
+        toast({ title: "Gmail Compose Opened", description: "Review the pre-filled email and click Send in Gmail." });
+      } else {
+        toast({ title: "Moved to PI Review", description: "Brief status updated." });
+      }
       onRefresh();
     },
     onError: (err: unknown) => {
@@ -300,7 +305,7 @@ function BriefCard({
                     disabled={sendToPi.isPending}
                   >
                     <Send className="h-3.5 w-3.5 mr-1.5" />
-                    {sendToPi.isPending ? "Sending..." : "Send to PI"}
+                    {sendToPi.isPending ? "Preparing..." : "Send to PI"}
                   </Button>
                   <Button
                     size="sm"

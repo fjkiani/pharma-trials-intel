@@ -80,28 +80,12 @@ async function probeGoogleDocs(s: Awaited<ReturnType<typeof getSettings>>): Prom
 }
 
 async function probeGmail(): Promise<{ connected: boolean; reason?: string; needsReconnect?: boolean }> {
-  try {
-    const { google } = await import("googleapis");
-    const auth = await getGoogleOAuth2Client("google-mail");
-    const gmail = google.gmail({ version: "v1", auth });
-    const profile = await gmail.users.getProfile({ userId: "me" });
-    if (!profile.data.emailAddress) return { connected: false, reason: "Gmail profile returned no email address" };
-    return { connected: true };
-  } catch (e) {
-    const msg = e instanceof Error ? e.message : String(e);
-    const isNotConnected = msg.includes("not connected") || msg.includes("not found");
-    const isScope = msg.toLowerCase().includes("insufficient") || msg.toLowerCase().includes("scope");
-    if (isNotConnected || isScope) {
-      return {
-        connected: false,
-        needsReconnect: true,
-        reason: isNotConnected
-          ? "Google Mail not connected — add it in the Replit integrations panel."
-          : "Gmail needs reconnection — disconnect and reconnect 'Google Mail' in the Replit integrations panel to grant send permissions.",
-      };
-    }
-    return { connected: false, reason: `Gmail error: ${msg.slice(0, 120)}` };
-  }
+  // Email delivery uses Gmail Compose URLs (no API call required).
+  // No OAuth scope or connector connection needed.
+  return {
+    connected: true,
+    reason: "Using Gmail Compose URLs — no API key required.",
+  };
 }
 
 async function probeGoogleCalendar(s: Awaited<ReturnType<typeof getSettings>>): Promise<{ connected: boolean; reason?: string }> {

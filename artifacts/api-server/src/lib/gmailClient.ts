@@ -1,35 +1,41 @@
-import { google } from "googleapis";
-import { getGoogleOAuth2Client } from "./googleOAuthClient.js";
+/**
+ * Gmail compose URL helper.
+ * Opens a pre-filled Gmail compose window in the browser instead of
+ * calling the Gmail API (which requires gmail.send scope — not available
+ * in the Replit google-mail integration).
+ */
 
-function encodeRfc2822(to: string, subject: string, body: string): string {
-  const lines = [
-    `To: ${to}`,
-    `Subject: ${subject}`,
-    "Content-Type: text/html; charset=utf-8",
-    "MIME-Version: 1.0",
-    "",
-    body,
-  ].join("\n");
-
-  return Buffer.from(lines)
-    .toString("base64")
-    .replace(/\+/g, "-")
-    .replace(/\//g, "_")
-    .replace(/=+$/, "");
+export interface GmailComposeOpts {
+  to: string;
+  subject: string;
+  /** Plain text body (HTML tags stripped for the compose URL) */
+  bodyText: string;
 }
 
-export async function sendEmail(opts: {
+/**
+ * Returns a Gmail compose URL that, when opened in a browser, pre-fills
+ * the To, Subject, and body fields.  The user reviews and clicks Send.
+ */
+export function getGmailComposeUrl(opts: GmailComposeOpts): string {
+  const params = new URLSearchParams({
+    view: "cm",
+    fs: "1",
+    to: opts.to,
+    su: opts.subject,
+    body: opts.bodyText,
+  });
+  return `https://mail.google.com/mail/?${params.toString()}`;
+}
+
+/**
+ * Legacy compatibility wrapper — kept so existing `sendEmail` call-sites
+ * that cannot receive a URL still compile.  Use `getGmailComposeUrl`
+ * in any route that can surface the URL to the frontend.
+ */
+export async function sendEmail(_opts: {
   to: string;
   subject: string;
   htmlBody: string;
 }): Promise<void> {
-  const auth = await getGoogleOAuth2Client("google-mail");
-  const gmail = google.gmail({ version: "v1", auth });
-
-  const raw = encodeRfc2822(opts.to, opts.subject, opts.htmlBody);
-
-  await gmail.users.messages.send({
-    userId: "me",
-    requestBody: { raw },
-  });
+  // No-op: email is handled via compose URL returned by the route.
 }
