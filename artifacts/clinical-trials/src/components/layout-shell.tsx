@@ -113,14 +113,6 @@ export function LayoutShell({ children }: { children: React.ReactNode }) {
                     </SidebarMenuButton>
                   </SidebarMenuItem>
                   <SidebarMenuItem>
-                    <SidebarMenuButton asChild isActive={location.startsWith("/governance")}>
-                      <Link href="/governance">
-                        <ShieldCheck className="h-4 w-4 text-violet-600" />
-                        <span>Governance & Audit</span>
-                      </Link>
-                    </SidebarMenuButton>
-                  </SidebarMenuItem>
-                  <SidebarMenuItem>
                     <SidebarMenuButton asChild isActive={location.startsWith("/competitor-watch")}>
                       <Link href="/competitor-watch">
                         <Eye className="h-4 w-4" />
@@ -144,14 +136,6 @@ export function LayoutShell({ children }: { children: React.ReactNode }) {
                       </Link>
                     </SidebarMenuButton>
                   </SidebarMenuItem>
-                  <SidebarMenuItem>
-                    <SidebarMenuButton asChild isActive={location.startsWith("/settings")}>
-                      <Link href="/settings">
-                        <Settings className="h-4 w-4" />
-                        <span>Connection Setup</span>
-                      </Link>
-                    </SidebarMenuButton>
-                  </SidebarMenuItem>
                 </SidebarMenu>
               </SidebarGroupContent>
             </SidebarGroup>
@@ -160,10 +144,26 @@ export function LayoutShell({ children }: { children: React.ReactNode }) {
               <SidebarGroupContent>
                 <SidebarMenu>
                   <SidebarMenuItem>
+                    <SidebarMenuButton asChild isActive={location.startsWith("/governance")}>
+                      <Link href="/governance">
+                        <ShieldCheck className="h-4 w-4 text-violet-600" />
+                        <span>Governance & Audit</span>
+                      </Link>
+                    </SidebarMenuButton>
+                  </SidebarMenuItem>
+                  <SidebarMenuItem>
                     <SidebarMenuButton asChild isActive={location.startsWith("/admin/rules")}>
                       <Link href="/admin/rules">
                         <Cpu className="h-4 w-4 text-slate-500" />
                         <span>Signal Engine Rules</span>
+                      </Link>
+                    </SidebarMenuButton>
+                  </SidebarMenuItem>
+                  <SidebarMenuItem>
+                    <SidebarMenuButton asChild isActive={location.startsWith("/settings")}>
+                      <Link href="/settings">
+                        <Settings className="h-4 w-4" />
+                        <span>Connection Setup</span>
                       </Link>
                     </SidebarMenuButton>
                   </SidebarMenuItem>
