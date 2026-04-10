@@ -66,3 +66,7 @@ export async function getAuditLog(limit = 200): Promise<AuditLogEntry[]> {
   const entries: AuditLogEntry[] = Array.isArray(raw) ? raw : [];
   return entries.slice(-limit).reverse();
 }
+
+export async function clearAuditLog(): Promise<void> {
+  await dbSet(AUDIT_KEY, []);
+}
