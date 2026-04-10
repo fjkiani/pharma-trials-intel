@@ -1,0 +1,48 @@
+The backend kill-chain is delivering intelligence payloads via the trial:alerts:{nctId} DB keys. We must now expose this to Susan.
+
+I have reviewed the existing UI (Sponsor Report Co-Pilot). We are going to reuse its exact design language, component structure, and lifecycle tracking to build the new Competitor Intelligence view.
+
+Task 9: Build the Competitor Intelligence UI
+
+1. The Layout & Navigation
+* Add a new primary route: /strike-center.
+* In the main sidebar/navigation, add "Competitor Intelligence" as the top item (above "Sponsor Reports").
+
+2. The Strike Center Header
+* Create pages/StrikeCenter.tsx.
+* Title: "Competitor Intelligence"
+* Subtitle: "Live threat radar and automated intelligence briefings."
+* Action Buttons (Top Right):
+
+Button 1 (Outline): [ ⟳ Refresh Swarm ] (Triggers POST /internal/swarm-poll).
+
+Button 2 (Solid Teal, matching 'Run Monthly Report'): [ ⚡ Draft Intelligence Brief ] (Triggers the POST /internal/draft-memo endpoint built in Task 8).
+3. The Threat Radar (The Feed)
+* Below the header, add a section title: LIVE ANOMALIES.
+* Create a components/StrikeFeed.tsx component that fetches from GET /api/strike/feed.
+* Render the alerts as a grid or list of cards.
+* Crucial Design Detail: Do not use the large "Report History" card style for the live feed. Use a denser, higher-information layout.
+
+Critical (Red): e.g., Trial Terminated.
+
+High (Orange): e.g., P-Hacking, Toxicity Camouflage.
+
+Medium (Yellow): e.g., Enrollment Bleed.
+
+Each card must show the NCT ID, Drug Name (if available), the detectedAt timestamp, and the headline.
+4. Hijacking the Lifecycle Tracker (The Intelligence Briefs)
+* Below the LIVE ANOMALIES feed, add a section title: INTELLIGENCE BRIEFS.
+* This section will look exactly like the current REPORT HISTORY view from the Sponsor Report page.
+* When Susan clicks [ ⚡ Draft Intelligence Brief ], it creates a new card in this section.
+* The Card:
+
+Title: Intelligence Brief — [Date]
+
+Subtitle: Generated [Date/Time]
+
+Status Badges: Reuse the exact Draft -> PI Review -> Approved -> Sent component.
+
+Buttons: [ ↗ Open Doc ], [ ✉ Send to PI ], [ 🗑 Discard ].
+The Workflow Goal:
+Susan logs in. She sees 3 Orange anomaly cards in the LIVE ANOMALIES feed (e.g., AstraZeneca changed their endpoint). She clicks the solid Teal [ ⚡ Draft Intelligence Brief ] button. A new card appears in the INTELLIGENCE BRIEFS list in the Draft state. She clicks [ ↗ Open Doc ] to read the LLM-generated summary, then clicks [ ✉ Send to PI ].
+Build this view using the existing UI components.
