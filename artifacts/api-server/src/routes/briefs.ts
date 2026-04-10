@@ -10,6 +10,44 @@ import {
 } from "../lib/briefHistory.js";
 import { getSettings } from "../lib/settings.js";
 
+// ── Helpers (mirrors frontend dossier logic) ─────────────────────────────────
+
+function deriveFailureVector(whyStopped: string | null, headline: string): string {
+  const src = (whyStopped ?? headline ?? "").toLowerCase();
+  if (src.includes("ctep") || src.includes("drug supply") || src.includes("supplied drug")) return "DRUG SUPPLY HALTED";
+  if (src.includes("futility") || src.includes("efficacy")) return "FUTILITY — EFFICACY FAILED";
+  if (src.includes("safety") || src.includes("adverse") || src.includes("toxicity")) return "SAFETY SIGNAL FORCED STOP";
+  if (src.includes("enrollment") || src.includes("recruit")) return "ENROLLMENT COLLAPSE";
+  if (src.includes("covid") || src.includes("pandemic")) return "EXTERNAL FORCE MAJEURE";
+  if (src.includes("company") || src.includes("sponsor") || src.includes("decision") || src.includes("prematurely")) return "SPONSOR WITHDRAWAL";
+  if (src.includes("partner") || src.includes("collaborat")) return "PARTNER BAILOUT";
+  return "SPONSOR DECISION";
+}
+
+function deriveEvidenceTier(severity: string): string {
+  if (severity === "critical") return "CONFIRMED";
+  if (severity === "high") return "PROBABLE";
+  if (severity === "medium") return "INSUFFICIENT";
+  return "UNSCORED";
+}
+
+function deriveClinicalDirective(module: string): string {
+  if (module === "TerminationDetector") return "Debrief PI immediately. Evaluate whether this termination creates a positioning gap or enrollment opportunity for ONCO-247.";
+  if (module === "ResultsIntelligence") return "Pull primary and secondary outcome data from the registry. Benchmark efficacy and AE profiles against ONCO-247's current targets.";
+  if (module === "ToxicityCamouflage") return "Extract AE grade distribution. Identify whether the competitor's safety profile creates a differentiation advantage for ONCO-247.";
+  if (module === "EnrollmentBleed") return "Track enrollment velocity. If bleed is accelerating, assess risk of ONCO-247 competing for the same site network.";
+  return "Review the full signal chain before the next PI sync.";
+}
+
+const MODULE_LABEL: Record<string, string> = {
+  TerminationDetector: "Termination Detector",
+  ResultsIntelligence: "Results Intelligence",
+  ToxicityCamouflage: "Toxicity Camouflage",
+  EnrollmentBleed: "Enrollment Bleed",
+  TimelineShift: "Timeline Shift",
+  StatusTransition: "Status Transition",
+};
+
 type DbResult<T> = { ok: true; value: T } | { ok: false; error: unknown };
 
 const _db = new Database();
@@ -74,11 +112,19 @@ function handleError(
   }
 }
 
-function buildBriefDocContent(alerts: TriggeredAlert[]): string {
+interface TrialSnapshot {
+  protocolSection?: {
+    identificationModule?: { briefTitle?: string; officialTitle?: string };
+    statusModule?: { overallStatus?: string; whyStopped?: string; primaryCompletionDateStruct?: { date?: string } };
+    sponsorCollaboratorsModule?: { leadSponsor?: { name?: string } };
+    designModule?: { phases?: string[] };
+    eligibilityModule?: { maximumAge?: string; minimumAge?: string };
+  };
+}
+
+async function buildBriefDocContent(alerts: TriggeredAlert[]): Promise<string> {
   const now = new Date().toLocaleDateString("en-US", {
-    month: "long",
-    day: "numeric",
-    year: "numeric",
+    month: "long", day: "numeric", year: "numeric",
   });
 
   const severityOrder: Record<string, number> = { critical: 0, high: 1, medium: 2, low: 3 };
@@ -86,34 +132,114 @@ function buildBriefDocContent(alerts: TriggeredAlert[]): string {
     (a, b) => (severityOrder[a.severity] ?? 9) - (severityOrder[b.severity] ?? 9),
   );
 
-  const alertSections = sorted
-    .map(
-      (a, i) => `
-${i + 1}. [${a.severity.toUpperCase()}] ${a.nctId} — ${a.module}
-   Detected: ${new Date(a.detectedAt).toLocaleString("en-US")}
+  // Group by NCT ID (in order of worst severity first)
+  const byNct = new Map<string, TriggeredAlert[]>();
+  for (const a of sorted) {
+    if (!byNct.has(a.nctId)) byNct.set(a.nctId, []);
+    byNct.get(a.nctId)!.push(a);
+  }
 
-   ${a.headline}
+  // Fetch trial metadata from DB for each NCT ID
+  const meta = new Map<string, TrialSnapshot | null>();
+  for (const nctId of byNct.keys()) {
+    const snap = await dbGet<TrialSnapshot>(`trial:current:${nctId}`);
+    meta.set(nctId, snap);
+  }
 
-   ${a.detail}
-`,
-    )
-    .join("\n" + "—".repeat(50) + "\n");
+  const criticalCount = alerts.filter(a => a.severity === "critical").length;
+  const highCount = alerts.filter(a => a.severity === "high").length;
+  const nctCount = byNct.size;
+
+  // Build each trial section
+  const sections: string[] = [];
+  let trialIdx = 0;
+
+  for (const [nctId, trialAlerts] of byNct.entries()) {
+    trialIdx++;
+    const snap = meta.get(nctId);
+    const ps = snap?.protocolSection;
+    const title = ps?.identificationModule?.briefTitle ?? ps?.identificationModule?.officialTitle ?? nctId;
+    const sponsor = ps?.sponsorCollaboratorsModule?.leadSponsor?.name ?? "Unknown Sponsor";
+    const status = ps?.statusModule?.overallStatus ?? "UNKNOWN";
+    const phase = (ps?.designModule?.phases ?? []).join("/") || "N/A";
+    const whyStopped = ps?.statusModule?.whyStopped ?? null;
+    const primaryCompletion = ps?.statusModule?.primaryCompletionDateStruct?.date ?? "—";
+
+    // Worst signal for this trial
+    const worst = trialAlerts[0];
+    const failureVector = status === "TERMINATED" ? deriveFailureVector(whyStopped, worst.headline) : "N/A — ACTIVE SIGNAL";
+    const evidenceTier = deriveEvidenceTier(worst.severity);
+    const worstSeverity = worst.severity.toUpperCase();
+
+    let section = `${"━".repeat(60)}
+TRIAL ${trialIdx} OF ${nctCount}  ·  ${worstSeverity} PRIORITY
+${"━".repeat(60)}
+
+${title}
+${nctId}  ·  ${sponsor}  ·  Phase ${phase}
+
+STATUS             │  FAILURE VECTOR            │  ZETA-CORE VERDICT
+${status.padEnd(18)} │  ${failureVector.padEnd(26)} │  ${evidenceTier}
+
+Primary Completion: ${primaryCompletion}
+`;
+
+    // Smoking Gun: only for terminations with a reason
+    if (status === "TERMINATED" && whyStopped) {
+      section += `
+SMOKING GUN
+"${whyStopped}"
+`;
+    }
+
+    // All signals for this trial
+    section += `
+ACTIVE SIGNALS (${trialAlerts.length})
+`;
+    for (const a of trialAlerts) {
+      const moduleLabel = MODULE_LABEL[a.module] ?? a.module;
+      const ts = new Date(a.detectedAt).toLocaleString("en-US", { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" });
+      section += `
+  [${a.severity.toUpperCase()}]  ${moduleLabel}
+  Detected: ${ts}
+  ${a.headline}
+  ${a.detail}
+`;
+    }
+
+    // Clinical Directive — based on worst module
+    const directive = deriveClinicalDirective(worst.module);
+    section += `
+CLINICAL DIRECTIVE
+→ ${directive}
+`;
+
+    sections.push(section);
+  }
 
   return `COMPETITOR INTELLIGENCE BRIEFING
-Date: ${now}
-Active Alerts: ${alerts.length}
+${"═".repeat(60)}
+Generated:    ${now}
+ONCO-247 — CRC Trial  ·  Susan Chen, CRC
+Active Alerts: ${alerts.length}  (${criticalCount} CRITICAL  /  ${highCount} HIGH)
+Trials In Scope: ${nctCount}
+${"═".repeat(60)}
 
-${"=".repeat(60)}
+${sections.join("\n")}
 
-${alertSections}
+${"═".repeat(60)}
+STRATEGIC NEXT STEPS
 
-${"=".repeat(60)}
+Review each CRITICAL signal with your PI before the next site
+visit. Prioritise terminated trials — map their patient
+populations against ONCO-247 enrollment targets. ResultsIntelligence
+signals should be benchmarked against our primary endpoint specs.
 
-RECOMMENDED NEXT STEPS
-[PI to complete — Review each alert above and advise on implications for our trial strategy and recruitment targets.]
+[PI to sign off and return to Susan Chen, CRC — ONCO-247]
+${"═".repeat(60)}
 
----
-Generated by Clinical Trials Co-Pilot — Competitor Intelligence`;
+Generated by Clinical Trials Co-Pilot — Signal Engine v2
+Competitor Intelligence Track  ·  ONCO-247`;
 }
 
 
@@ -137,7 +263,7 @@ router.post(["/briefs", "/internal/draft-memo"], async (_req, res): Promise<void
       );
     }
 
-    const content = buildBriefDocContent(activeAlerts);
+    const content = await buildBriefDocContent(activeAlerts);
     const docTitle = `Competitor Intelligence Brief — ${new Date().toLocaleDateString("en-US")}`;
 
     const { ReplitConnectors } = await import("@replit/connectors-sdk");
