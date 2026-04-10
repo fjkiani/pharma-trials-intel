@@ -93,11 +93,20 @@ router.post("/connections/discover", async (_req, res): Promise<void> => {
     errors.push(`Notion discovery error: ${e instanceof Error ? e.message : String(e)}`);
   }
 
-  // --- Google Drive: list accessible Sheets and Docs ---
+  // --- Google Drive: only surface ONCO-247-relevant Sheets and Docs ---
+  // Filter by name keywords so personal files are never shown in the wizard.
+  const ONCO247_DRIVE_KEYWORDS = [
+    "onco",
+    "enrollment extract",
+    "sponsor report template",
+    "clinical trial",
+    "clinical trials",
+  ];
+
   try {
     const driveRes = await driveProxy("/drive/v3/files", {
       params: {
-        pageSize: "50",
+        pageSize: "100",
         fields: "files(id,name,mimeType)",
         q: "mimeType='application/vnd.google-apps.spreadsheet' or mimeType='application/vnd.google-apps.document'",
       },
@@ -107,6 +116,10 @@ router.post("/connections/discover", async (_req, res): Promise<void> => {
         files?: { id: string; name: string; mimeType: string }[];
       };
       for (const file of data.files ?? []) {
+        const nameLower = file.name.toLowerCase();
+        const isRelevant = ONCO247_DRIVE_KEYWORDS.some((kw) => nameLower.includes(kw));
+        if (!isRelevant) continue;
+
         const type = file.mimeType.includes("spreadsheet") ? "google-sheet" : "google-doc";
         const typeLabel = file.mimeType.includes("spreadsheet") ? "Google Sheet" : "Google Doc";
         results.push({
